@@ -1,0 +1,27 @@
+name: Engagement Scraper
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: binance-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run best-effort engagement scrape
+        working-directory: automation
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          SCRAPE_LIMIT: ${{ vars.SCRAPE_LIMIT || '50' }}
+        run: node scrape.mjs

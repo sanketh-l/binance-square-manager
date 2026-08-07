@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Binance Square Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-card">
+      <h1>Binance Square Manager</h1>
+      <p class="sub">Multi-account auto-poster control panel</p>
+      <input id="login-api" type="text" placeholder="API URL (your worker URL e.g. https://xxx.workers.dev)">
+      <input id="login-token" type="password" placeholder="Admin token (X-API-Token)">
+      <button id="login-btn">Connect</button>
+      <div id="login-error" class="error"></div>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header>
+      <h1>Binance Square Manager</h1>
+      <nav>
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="accounts">Accounts</button>
+        <button class="tab" data-tab="timeline">Timeline</button>
+        <button class="tab" data-tab="analytics">Analytics</button>
+        <button id="logout-btn" class="ghost">Log out</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="view-overview" class="view active"></section>
+      <section id="view-accounts" class="view"></section>
+      <section id="view-timeline" class="view"></section>
+      <section id="view-analytics" class="view"></section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

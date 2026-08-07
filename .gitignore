@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+images/
+used-coins.json
+package-lock.json
+.dev.vars
+*.log
+.DS_Store

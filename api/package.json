@@ -1,0 +1,16 @@
+{
+  "name": "binance-manager-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker API for Binance Square multi-account manager",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute binance-manager --file=./migrations/0001_init.sql",
+    "db:local": "wrangler d1 execute binance-manager --local --file=./migrations/0001_init.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}

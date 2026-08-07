@@ -1,0 +1,14 @@
+{
+  "name": "binance-manager-automation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-account Binance Square auto-poster pipeline",
+  "scripts": {
+    "run": "node run.mjs",
+    "scrape": "node scrape.mjs"
+  },
+  "dependencies": {
+    "canvas": "^2.11.2"
+  }
+}
