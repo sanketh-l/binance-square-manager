@@ -31,7 +31,7 @@ Post crypto content to **multiple Binance Square accounts** from a single GitHub
 | **Automation** (`automation/`) | GitHub Actions | Fetches due accounts, generates content + chart images with Groq LLM + CoinGecko + canvas, publishes to each account's Binance Square, reports results to the API |
 | **Engagement scrape** (`automation/scrape.mjs`) | GitHub Actions (daily) | Best-effort attempt to read views/reactions from public post pages; silently degrades if unavailable |
 | **API** (`api/`) | Cloudflare Worker + D1 | Stores encrypted Binance keys, post history, per-account settings; auth via `X-API-Token` (admin) and `X-Bot-Token` (pipeline) |
-| **Dashboard** (`dashboard/`) | GitHub Pages / any static host | Add/remove accounts, paste Binance keys, toggle modes, view timeline + analytics |
+| **Dashboard** (`docs/`) | GitHub Pages / any static host | Add/remove accounts, paste Binance keys, toggle modes, view timeline + analytics |
 
 ---
 
@@ -75,8 +75,8 @@ In your repo → **Settings → Secrets and variables → Actions**:
 > Binance keys are **not** stored in GitHub secrets — they live encrypted in D1 and are entered through the dashboard.
 
 ### 3. Dashboard
-- Point GitHub Pages (or Cloudflare Pages) at the `dashboard/` folder.
-- Open it → enter your Worker `API_URL` and the **admin** token.
+- Point GitHub Pages at the `docs/` folder (already configured), or any static host.
+- Open `https://sanketh-l.github.io/binance-square-manager/` → enter your Worker `API_URL` and the **admin** token.
 - **Accounts tab → Add account** — name + Binance Square OpenAPI key + mode + interval + daily cap.
 
 ### 4. Trigger
