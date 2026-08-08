@@ -77,7 +77,7 @@ export function drawPriceChart(symbol, prices, outDir = '.') {
     ctx.fillText(d.getHours() + ':00', toX(idx), height - 10);
   }
 
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const filePath = path.join(outputDir, `${symbol}_chart.png`);
   fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
   return filePath;

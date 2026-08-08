@@ -1,6 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import { fetchAccounts, fetchDecryptedKey, reportPost } from './lib/api.mjs';
-import { getTimeOfDay, fetchCoinGeckoTrending, fetchPriceData, fetchCoinGeckoChart } from './lib/coingecko.mjs';
+import { getTimeOfDay, fetchCoinGeckoTrending, fetchPriceData, fetchCoinGeckoChart, fetchUnsplashImage } from './lib/coingecko.mjs';
 import { selectTopic, generatePost } from './lib/llm.mjs';
 import { drawPriceChart } from './lib/charts.mjs';
 import { uploadImage, publishPost } from './lib/binance.mjs';
@@ -9,6 +10,7 @@ const RUN_ID = Date.now();
 const USED_FILE = 'used-coins.json';
 const IMAGES_DIR = 'images';
 const TIME = getTimeOfDay();
+const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || '';
 
 function loadUsed() {
   try {
@@ -24,6 +26,20 @@ function saveUsed(symbol) {
   const data = { coins: loadUsed().map((c) => ({ coin: c, timestamp: new Date().toISOString() })) };
   data.coins.push({ coin: symbol, timestamp: new Date().toISOString() });
   fs.writeFileSync(USED_FILE, JSON.stringify(data, null, 2));
+}
+
+async function downloadImage(url, filename) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
+    const filePath = path.join(IMAGES_DIR, filename);
+    fs.writeFileSync(filePath, Buffer.from(buf));
+    return filePath;
+  } catch {
+    return null;
+  }
 }
 
 function isDue(account) {
@@ -54,10 +70,29 @@ async function makePost(topic) {
   const content = await generatePost(topic, price);
   if (!content) throw new Error('Content generation failed.');
   let imagePath = null;
+  // Try price chart first
   try {
     const prices = await fetchCoinGeckoChart(topic.symbol);
-    if (prices && prices.length >= 2) imagePath = drawPriceChart(topic.symbol, prices, IMAGES_DIR);
-  } catch {}
+    if (prices && prices.length >= 2) {
+      imagePath = drawPriceChart(topic.symbol, prices, IMAGES_DIR);
+      console.log(`  [chart] Generated: ${imagePath}`);
+    }
+  } catch (err) {
+    console.log(`  [chart] Failed: ${err.message}`);
+  }
+  // Fallback: Unsplash image
+  if (!imagePath && UNSPLASH_KEY) {
+    try {
+      const unsplashUrl = await fetchUnsplashImage(`${topic.symbol} crypto trading chart`, UNSPLASH_KEY);
+      if (unsplashUrl) {
+        imagePath = await downloadImage(unsplashUrl, `${topic.symbol}_unsplash.jpg`);
+        console.log(`  [unsplash] Downloaded: ${imagePath}`);
+      }
+    } catch (err) {
+      console.log(`  [unsplash] Failed: ${err.message}`);
+    }
+  }
+  if (!imagePath) console.log(`  [img] No image generated for ${topic.symbol}`);
   return {
     coin: topic.symbol,
     content,
@@ -77,7 +112,7 @@ async function publishForAccount(account, post) {
   }
   const result = await publishPost(key, post.content, imageUrl);
   await new Promise((r) => setTimeout(r, 2000));
-  return result;
+  return { ...result, imageUrl };
 }
 
 async function main() {
@@ -142,7 +177,7 @@ async function main() {
         accountId: r.account.id,
         coin: r.coin || null,
         text: r.text || null,
-        imageUrl: null,
+        imageUrl: r.ok ? (r.result.imageUrl || null) : null,
         postUrl: r.ok ? r.result.postUrl : null,
         contentId: r.ok ? r.result.contentId : null,
         status: r.ok ? 'published' : 'failed',

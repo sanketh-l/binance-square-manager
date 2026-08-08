@@ -84,3 +84,18 @@ export async function fetchCoinGeckoChart(symbol) {
     return null;
   }
 }
+
+export async function fetchUnsplashImage(query, accessKey) {
+  if (!accessKey) return null;
+  try {
+    const res = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}&orientation=landscape&count=1`, {
+      headers: { Authorization: `Client-ID ${accessKey}` },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.urls?.regular || null;
+  } catch {
+    return null;
+  }
+}
