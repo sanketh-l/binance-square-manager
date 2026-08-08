@@ -20,21 +20,42 @@ export function drawPriceChart(symbol, prices, outDir = '.') {
   const pctChange = ((points[points.length - 1].price - points[0].price) / points[0].price) * 100;
   const isUp = pctChange >= 0;
 
-  ctx.fillStyle = '#0d1117';
+  // Light background for better visibility
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = '#21262d';
+  // Grid
+  ctx.strokeStyle = '#e0e0e0';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (ch / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
   }
+  for (let i = 0; i <= 6; i++) {
+    const x = pad.left + (cw / 6) * i;
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + ch); ctx.stroke();
+  }
 
   const toX = (i) => pad.left + (i / (points.length - 1)) * cw;
   const toY = (p) => pad.top + ch - ((p - min) / (max - min)) * ch;
 
+  // Area fill
   ctx.beginPath();
-  ctx.strokeStyle = isUp ? '#00c853' : '#ff1744';
+  ctx.moveTo(toX(0), pad.top + ch);
+  for (let i = 0; i < points.length; i++) {
+    ctx.lineTo(toX(i), toY(points[i].price));
+  }
+  ctx.lineTo(toX(points.length - 1), pad.top + ch);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + ch);
+  grad.addColorStop(0, isUp ? 'rgba(0,200,83,0.15)' : 'rgba(255,23,68,0.15)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Price line
+  ctx.beginPath();
+  ctx.strokeStyle = isUp ? '#00a843' : '#e01b24';
   ctx.lineWidth = 3;
   ctx.lineJoin = 'round';
   for (let i = 0; i < points.length; i++) {
@@ -43,39 +64,48 @@ export function drawPriceChart(symbol, prices, outDir = '.') {
   }
   ctx.stroke();
 
+  // Current price dot
+  const lastX = toX(points.length - 1);
+  const lastY = toY(points[points.length - 1].price);
   ctx.beginPath();
-  ctx.moveTo(toX(points.length - 1), toY(points[points.length - 1].price));
-  ctx.lineTo(toX(points.length - 1), pad.top + ch);
-  ctx.lineTo(toX(0), pad.top + ch);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + ch);
-  grad.addColorStop(0, isUp ? 'rgba(0,200,83,0.2)' : 'rgba(255,23,68,0.2)');
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
+  ctx.arc(lastX, lastY, 6, 0, Math.PI * 2);
+  ctx.fillStyle = isUp ? '#00a843' : '#e01b24';
   ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px Arial';
+  // Title
+  ctx.fillStyle = '#1a1a1a';
+  ctx.font = 'bold 24px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(`$${symbol.toUpperCase()} ${isUp ? '+' : ''}${pctChange.toFixed(2)}%`, width / 2, 32);
+  ctx.fillText(`${symbol.toUpperCase()} ${isUp ? '+' : ''}${pctChange.toFixed(2)}%`, width / 2, 32);
 
+  // Y-axis labels
   ctx.font = '12px Arial';
-  ctx.fillStyle = '#8b949e';
+  ctx.fillStyle = '#666666';
   ctx.textAlign = 'right';
   for (let i = 0; i <= 4; i++) {
     const val = min + ((max - min) / 4) * (4 - i);
     const priceStr = val < 0.01 ? val.toFixed(6) : val < 100 ? val.toFixed(4) : val.toFixed(2);
-    ctx.fillText('$' + priceStr, pad.left - 6, pad.top + (ch / 4) * i + 4);
+    ctx.fillText('$' + priceStr, pad.left - 8, pad.top + (ch / 4) * i + 4);
   }
 
-  ctx.fillStyle = '#8b949e';
+  // X-axis labels
+  ctx.fillStyle = '#666666';
   ctx.textAlign = 'center';
   const n = 6;
   for (let i = 0; i < n; i++) {
     const idx = Math.floor((i / (n - 1)) * (points.length - 1));
     const d = new Date(points[idx].time);
-    ctx.fillText(d.getHours() + ':00', toX(idx), height - 10);
+    ctx.fillText(d.getHours() + ':00', toX(idx), height - 12);
   }
+
+  // Watermark
+  ctx.fillStyle = '#cccccc';
+  ctx.font = '10px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText('Binance Square Bot', width - 20, height - 15);
 
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const filePath = path.join(outDir, `${symbol}_chart.png`);
