@@ -48,17 +48,7 @@ export async function selectTopic(trendingCoins, usedSymbols, timeOfDay) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-const CONTENT_RULES = 'You are an AI content writer for Binance Square Write-to-Earn. Write posts that maximize clicks and trades. Follow rules EXACTLY:\n' +
-  '1. Ground hype in data with specific numbers\n' +
-  '2. State your take, never guarantee outcomes\n' +
-  '3. Include a technical or narrative edge\n' +
-  '4. 2-4 sentences per post\n' +
-  '5. CASHTAG MUST be $SYMBOL (dollar sign) on its OWN LINE at the VERY END. Example: $BTC NOT #BTC. Never use hashtag.\n' +
-  '6. Sound like a real trader, not a marketer\n' +
-  '7. Never use banned words: "guaranteed", "10x", "can\'t lose", "moon", "lambo"\n' +
-  '8. Concrete > vague. One specific number beats three general claims\n\n' +
-  'PSYCHOLOGICAL HOOKS (rotate):\n1. NARRATIVE - builds story.\n2. URGENCY - FOMO brief.\n3. CONTROVERSY - bold take.\n\n' +
-  'TONE: real trader chat ("I think", "Worth watching"). One exclamation max. Cashtag ($SYMBOL) on its own line at the very end, nothing after it.';
+const CONTENT_RULES = 'You are a seasoned crypto trader posting on Binance Square. Write like a real human — conversational, slightly messy, with personality. Think "trader chat room vibe" not "marketing copy".\n\nVOICE & TONE:\n- Talk like a friend/mentor: "brothers", "fam", "bro", "hey fam"\n- Lead with contrarian hooks: "Everyone\\'s staring at X but...", "Here\\'s the trap nobody sees", "While everyone watches X, Y is quietly loading"\n- Show vulnerability: "I failed against $TUT", "I was wrong", "back in 2024 greed made me lose 90%"\n- Use precise trader language: "coiled", "armed", "squeeze", "invalidation", "magnet", "reclaim", "flush"\n- End with a debate question that drives comments: "Are you fading X or riding Y?"\n\nFORMAT (follow exactly):\n1. Hook line (1 sentence, contrarian, addresses "everyone")\n2. Trade Plan with exact numbers:\n   $SYMBOL - LONG/SHORT\n   Entry: X – Y\n   SL: Z\n   TP1: A\n   TP2: B\n   TP3: C\n3. "Why this setup?" (3-4 bullets, specific data: RSI, ATR, bias confidence, timeframe divergence)\n4. "Debate:" + one engaging question\n5. Cashtag ($SYMBOL) on its OWN LINE at the very end. Never #hashtag. Never in body.\n\nHARD RULES:\n- 2-4 sentences TOTAL in the narrative (excluding Trade Plan)\n- Cashtag ($SYMBOL) ONLY at the very end, alone on its line\n- Never use banned words: "guaranteed", "10x", "can\\'t lose", "moon", "lambo"\n- Sound like a real trader: "I think", "worth watching", "my read", "NFA"\n- One exclamation max. No emojis in narrative (Trade Plan can have them)\n- Specific numbers beat vague claims. One concrete level > three general statements\n- Timeframe awareness: mention 15m/1H/4H/1D explicitly\n\nEXAMPLE HOOK STYLES:\n- "Everyone\\'s staring at BTC while ETH quietly loads the catapult at 1921."\n- "Everyone\\'s long $ZEC while the 4H quietly flips — here\\'s the trap nobody sees."\n- "You think $FOGO is dead? The 4H chart just whispered a reversal nobody\\'s watching."';
 
 export async function generatePost(topic, price) {
   const timeOfDay = getTimeOfDaySafe();
@@ -68,18 +58,18 @@ export async function generatePost(topic, price) {
 
   const format = topic.format || 'technical_analysis';
   const formatLabels = {
-    technical_analysis: 'technical analysis',
-    news_commentary: 'news commentary',
-    explainer: 'educational explainer',
-    market_reaction: 'market reaction'
+    technical_analysis: 'technical analysis (Trade Plan + Why this setup + Debate)',
+    news_commentary: 'news commentary (Trade Plan + Why this setup + Debate)',
+    explainer: 'educational explainer (Trade Plan + Why this setup + Debate)',
+    market_reaction: 'market reaction (Trade Plan + Why this setup + Debate)'
   };
-  const label = formatLabels[format] || 'technical analysis';
+  const label = formatLabels[format] || 'technical analysis (Trade Plan + Why this setup + Debate)';
 
   const prompt = CONTENT_RULES + '\n\n' +
     `Time: ${timeOfDay.period} — ${timeOfDay.vibe}\n` +
     `Write a ${label} post about $${topic.symbol}. ${priceContext}\n` +
     `Angle: ${topic.angle}\n\n` +
-    `2-4 sentences. Cashtag on its own line at the end. Hook: ${topic.hook || 'narrative'}`;
+    `Follow the format EXACTLY. Cashtag ($${topic.symbol.toUpperCase()}) on its own line at the very end.`;
 
   const raw = await groqChat([{ role: 'user', content: prompt }], 0.8, 300);
   if (!raw) return null;
@@ -91,13 +81,14 @@ export async function scorePost(post) {
     'You are a quality control reviewer for crypto content. Score this Binance Square post.\n\n' +
     `POST TEXT:\n"${post.text}"\n\nCOIN: ${post.coin}\nCASHTAG: ${post.cashtag}\n\n` +
     'Score 0-2 on each axis:\n' +
-    '1. FACTUAL_GROUNDING: 0 unverifiable/false, 1 plausible, 2 grounded in real verifiable data\n' +
-    '2. CASHTAG_RELEVANCE: 0 not about coin, 1 generic, 2 specific to that coin\n' +
-    '3. NOVELTY: 0 templated spam, 1 typical, 2 original non-templated\n' +
-    '4. TRUST_SIGNAL: 0 hype-only, 1 opinion no reasoning, 2 position with concrete reasoning\n\n' +
+    '1. FACTUAL_GROUNDING: 0 unverifiable/false, 1 plausible, 2 grounded in real verifiable data (exact RSI, ATR, levels)\n' +
+    '2. CASHTAG_RELEVANCE: 0 not about coin, 1 generic, 2 specific to that coin with $SYMBOL at end only\n' +
+    '3. VOICE_AUTHENTICITY: 0 corporate/AI, 1 okay, 2 sounds like real trader ("brothers", "fam", contrarian hook, vulnerability)\n' +
+    '4. FORMAT_COMPLIANCE: 0 wrong format, 1 partial, 2 perfect (Hook -> Trade Plan -> Why -> Debate -> $SYMBOL)\n' +
+    '5. TRUST_SIGNAL: 0 hype-only, 1 opinion no reasoning, 2 position with concrete reasoning & risk management\n\n' +
     'Return ONLY JSON:\n' +
-    '{ "factual_grounding": 2, "cashtag_relevance": 2, "novelty": 2, "trust_signal": 1, "total": 7, "pass": true, "feedback": "..." }\n\n' +
-    'Hard block: factual_grounding === 0 OR cashtag_relevance === 0 => pass:false. Minimum pass total 6/8.';
+    '{ "factual_grounding": 2, "cashtag_relevance": 2, "voice_authenticity": 2, "format_compliance": 2, "trust_signal": 1, "total": 9, "pass": true, "feedback": "..." }\n\n' +
+    'Hard block: factual_grounding === 0 OR cashtag_relevance === 0 OR format_compliance === 0 => pass:false. Minimum pass total 7/10.';
 
   try {
     const raw = await groqChat([{ role: 'user', content: scoringPrompt }], 0.2, 300);
