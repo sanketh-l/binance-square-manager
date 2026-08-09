@@ -35,6 +35,15 @@ function fmtDate(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+function nextCronTime() {
+  // Cron: 0 * * * * (top of every hour)
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(0, 0, 0);
+  if (next <= now) next.setHours(next.getHours() + 1);
+  return next.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+}
+
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -113,6 +122,7 @@ async function loadOverview() {
         <div class="stat-card"><div class="label">Published</div><div class="value green">${t.published}</div></div>
         <div class="stat-card"><div class="label">Failed</div><div class="value red">${t.failed}</div></div>
         <div class="stat-card"><div class="label">Success rate</div><div class="value">${successRate}%</div></div>
+        <div class="stat-card"><div class="label">Next auto-run</div><div class="value accent">${nextCronTime()}</div></div>
       </div>
       <h3 class="section-title">Accounts (${data.accounts.length})</h3>
       <div class="account-grid">
