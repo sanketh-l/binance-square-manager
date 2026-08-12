@@ -4,40 +4,74 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Binance Square Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="login-screen" class="login-screen hidden">
+  <div id="login-screen" class="login-screen">
     <div class="login-card">
-      <h1>Binance Square Manager</h1>
-      <p class="sub">Multi-account auto-poster control panel</p>
-      <input id="login-api" type="text" placeholder="API URL (your worker URL e.g. https://xxx.workers.dev)">
-      <input id="login-token" type="password" placeholder="Admin token (X-API-Token)">
-      <button id="login-btn">Connect</button>
-      <div id="login-error" class="error"></div>
+      <div class="login-brand">
+        <svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="currentColor"/>
+          <path d="M8 12h16M8 16h12M8 20h8" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <h1>Binance Square Manager</h1>
+          <p>Multi-account automation dashboard</p>
+        </div>
+      </div>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="login-api">API URL</label>
+          <input id="login-api" type="url" placeholder="https://your-worker.workers.dev" required autocomplete="url">
+          <span class="field-hint">Your Cloudflare Worker URL</span>
+        </div>
+        <div class="field">
+          <label for="login-token">Admin Token</label>
+          <input id="login-token" type="password" placeholder="X-API-Token" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="login-btn">
+          <span class="btn-text">Connect</span>
+          <span class="btn-loader" aria-hidden="true"></span>
+        </button>
+        <p id="login-error" class="error" aria-live="polite"></p>
+      </form>
     </div>
   </div>
 
   <div id="app" class="app hidden">
-    <header>
-      <h1>Binance Square Manager</h1>
-      <nav>
-        <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="accounts">Accounts</button>
-        <button class="tab" data-tab="timeline">Timeline</button>
-        <button class="tab" data-tab="analytics">Analytics</button>
-        <button id="logout-btn" class="ghost">Log out</button>
+    <header class="header">
+      <div class="header-brand">
+        <svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="currentColor"/>
+          <path d="M8 12h16M8 16h12M8 20h8" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span class="title">Binance Square Manager</span>
+      </div>
+      <nav class="header-nav" role="navigation" aria-label="Main navigation">
+        <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+        <button class="tab" data-tab="accounts" role="tab" aria-selected="false">Accounts</button>
+        <button class="tab" data-tab="timeline" role="tab" aria-selected="false">Timeline</button>
+        <button class="tab" data-tab="analytics" role="tab" aria-selected="false">Analytics</button>
       </nav>
+      <div class="header-actions">
+        <span class="next-run" id="next-run" aria-live="polite"></span>
+        <button id="logout-btn" class="btn btn-ghost" aria-label="Log out">Log out</button>
+      </div>
     </header>
 
-    <main>
-      <section id="view-overview" class="view active"></section>
-      <section id="view-accounts" class="view"></section>
-      <section id="view-timeline" class="view"></section>
-      <section id="view-analytics" class="view"></section>
+    <main class="main" role="main">
+      <section id="view-overview" class="view active" role="tabpanel" aria-labelledby="overview-tab"></section>
+      <section id="view-accounts" class="view" role="tabpanel" aria-labelledby="accounts-tab"></section>
+      <section id="view-timeline" class="view" role="tabpanel" aria-labelledby="timeline-tab"></section>
+      <section id="view-analytics" class="view" role="tabpanel" aria-labelledby="analytics-tab"></section>
     </main>
   </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <script src="app.js"></script>
 </body>
