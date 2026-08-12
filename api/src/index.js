@@ -141,6 +141,105 @@ export default {
       return ok({ series });
     }
 
+    // ---- Engagement time-series (views/reactions over time)
+    if (path === '/api/stats/engagement-series' && method === 'GET') {
+      if (!isAdmin) return fail('Unauthorized', 401);
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
+      const accountId = url.searchParams.get('accountId') || undefined;
+      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      start.setUTCHours(0, 0, 0, 0);
+
+      let sql = `SELECT date(posted_at) AS day, 
+                        SUM(COALESCE(views, 0)) AS total_views,
+                        SUM(COALESCE(reactions, 0)) AS total_reactions,
+                        COUNT(*) AS posts_count
+                 FROM posts WHERE posted_at >= ?`;
+      const params = [start.toISOString()];
+      if (accountId) { sql += ' AND account_id = ?'; params.push(accountId); }
+      sql += ' GROUP BY date(posted_at) ORDER BY day';
+
+      const { results } = await db.prepare(sql).bind(...params).all();
+      const map = {};
+      for (const r of (results || [])) {
+        map[r.day] = { views: r.total_views || 0, reactions: r.total_reactions || 0, posts: r.posts_count || 0 };
+      }
+      const series = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().slice(0, 10);
+        series.push({ day: key, ...(map[key] || { views: 0, reactions: 0, posts: 0 }) });
+      }
+      return ok({ series });
+    }
+
+    // ---- Per-account performance comparison
+    if (path === '/api/stats/account-performance' && method === 'GET') {
+      if (!isAdmin) return fail('Unauthorized', 401);
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
+      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      start.setUTCHours(0, 0, 0, 0);
+
+      const { results } = await db.prepare(
+        `SELECT a.id, a.name, a.mode,
+                COUNT(p.id) AS total_posts,
+                SUM(CASE WHEN p.status = 'published' THEN 1 ELSE 0 END) AS published,
+                SUM(COALESCE(p.views, 0)) AS total_views,
+                SUM(COALESCE(p.reactions, 0)) AS total_reactions,
+                AVG(COALESCE(p.views, 0)) AS avg_views,
+                AVG(COALESCE(p.reactions, 0)) AS avg_reactions
+         FROM accounts a
+         LEFT JOIN posts p ON p.account_id = a.id AND p.posted_at >= ?
+         GROUP BY a.id, a.name, a.mode
+         ORDER BY total_views DESC`
+      ).bind(start.toISOString()).all();
+
+      const accounts = (results || []).map(r => ({
+        id: r.id,
+        name: r.name,
+        mode: r.mode,
+        totalPosts: r.total_posts || 0,
+        published: r.published || 0,
+        totalViews: r.total_views || 0,
+        totalReactions: r.total_reactions || 0,
+        avgViews: Math.round(r.avg_views || 0),
+        avgReactions: Math.round(r.avg_reactions || 0),
+        engagementRate: r.total_views > 0 ? Number(((r.total_reactions / r.total_views) * 100).toFixed(2)) : 0
+      }));
+      return ok({ accounts, days });
+    }
+
+    // ---- Top posts by engagement
+    if (path === '/api/stats/top-posts' && method === 'GET') {
+      if (!isAdmin) return fail('Unauthorized', 401);
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 10)));
+      const sortBy = url.searchParams.get('sortBy') || 'views';
+      const validSorts = ['views', 'reactions', 'engagementRate'];
+      const sort = validSorts.includes(sortBy) ? sortBy : 'views';
+
+      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      start.setUTCHours(0, 0, 0, 0);
+
+      const orderBy = sort === 'engagementRate' 
+        ? 'CASE WHEN views > 0 THEN (reactions * 1.0 / views) ELSE 0 END DESC'
+        : `${sort} DESC`;
+
+      const { results } = await db.prepare(
+        `SELECT p.*, a.name AS account_name
+         FROM posts p
+         JOIN accounts a ON a.id = p.account_id
+         WHERE p.posted_at >= ? AND p.status = 'published'
+         ORDER BY ${orderBy}
+         LIMIT ?`
+      ).bind(start.toISOString(), limit).all();
+
+      const posts = (results || []).map(p => ({
+        ...p,
+        engagementRate: p.views > 0 ? Number(((p.reactions / p.views) * 100).toFixed(2)) : 0
+      }));
+      return ok({ posts });
+    }
+
     // ---- Health of environment config
     if (path === '/api/health/env' && method === 'GET') {
       return ok({
@@ -149,6 +248,26 @@ export default {
         encryptionConfigured: !!env.KEY_ENCRYPTION_SECRET,
         dbBound: !!db
       });
+    }
+
+    // ---- Cron webhook (for cron-job.org) - triggers GitHub Actions
+    if (path === '/api/cron/trigger' && method === 'POST') {
+      const cronSecret = request.headers.get('X-Cron-Secret');
+      if (!cronSecret || cronSecret !== env.CRON_SECRET) {
+        return fail('Unauthorized', 401);
+      }
+      // Trigger GitHub Actions workflow_dispatch
+      const ghUrl = `https://api.github.com/repos/${env.GH_REPO}/actions/workflows/automate.yml/dispatches`;
+      fetch(ghUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.GH_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ref: 'main' })
+      }).catch(() => {});
+      return ok({ ok: true, triggered: true });
     }
 
     return fail('Not found', 404);

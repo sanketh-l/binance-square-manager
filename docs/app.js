@@ -336,45 +336,411 @@ function reloadTimeline() { loadTimeline(); }
 
 /* ---------------- Analytics ---------------- */
 
+let engagementChart = null;
+let engagementRateChart = null;
+let accountComparisonChart = null;
+
 async function loadAnalytics() {
   const view = $('#view-analytics');
   view.innerHTML = '<div class="empty">Loading…</div>';
   try {
-    const [series, overview] = await Promise.all([
-      api('/api/stats/series?days=14'),
-      api('/api/stats/overview')
+    const [series, overview, performance, topPosts] = await Promise.all([
+      api('/api/stats/engagement-series?days=30'),
+      api('/api/stats/overview'),
+      api('/api/stats/account-performance?days=30'),
+      api('/api/stats/top-posts?days=30&limit=10')
     ]);
-    const max = Math.max(1, ...series.series.map((s) => s.total));
-    const bars = series.series.map((s) => `
-      <div class="bar-row">
-        <div class="bar-label">${s.day.slice(5)}</div>
-        <div class="bar-wrap"><div class="bar" style="width:${Math.round((s.total / max) * 100)}%"></div></div>
-        <div class="bar-val">${s.total}</div>
-      </div>`).join('');
+    
+    state.series = series.series;
+    state.performance = performance.accounts;
 
-    const accRows = overview.accounts.map((a) => {
-      const rate = a.totalPosts > 0 ? Math.round((a.postsToday > 0 ? a.postsToday / a.totalPosts : 0) * 100) : 0;
-      return `
-        <tr>
-          <td>${esc(a.name)}</td><td>${a.totalPosts}</td><td>${a.postsToday}</td>
-          <td>${a.dailyCap > 0 ? Math.round((a.postsToday / a.dailyCap) * 100) + '% of cap' : '—'}</td>
-        </tr>`;
-    }).join('');
+    // Destroy existing charts
+    if (engagementChart) engagementChart.destroy();
+    if (engagementRateChart) engagementRateChart.destroy();
+    if (accountComparisonChart) accountComparisonChart.destroy();
 
+    const labels = series.series.map(s => s.day.slice(5));
+    const viewsData = series.series.map(s => s.views);
+    const reactionsData = series.series.map(s => s.reactions);
+    const postsData = series.series.map(s => s.posts);
+    const engagementRateData = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
+
+    // Build HTML with canvas elements for charts
     view.innerHTML = `
-      <div class="chart-box">
-        <h3>Posts per day (last 14 days)</h3>
-        ${bars}
+      <div class="analytics-controls">
+        <label>Period:</label>
+        <select id="analytics-period" onchange="changeAnalyticsPeriod(this.value)">
+          <option value="7">7 days</option>
+          <option value="14" selected>14 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="60">60 days</option>
+          <option value="90">90 days</option>
+        </select>
+        <label>Account:</label>
+        <select id="analytics-account" onchange="changeAnalyticsAccount(this.value)">
+          <option value="">All accounts</option>
+          ${overview.accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+        </select>
       </div>
+
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h3>Views & Reactions Over Time</h3>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color" style="background:#f0b90b"></span>Views</span>
+            <span class="legend-item"><span class="legend-color" style="background:#2ea44f"></span>Reactions</span>
+            <span class="legend-item"><span class="legend-color" style="background:#58a6ff"></span>Posts</span>
+          </div>
+          <canvas id="engagement-chart" height="200"></canvas>
+        </div>
+
+        <div class="chart-box">
+          <h3>Engagement Rate (Reactions / Views %)</h3>
+          <canvas id="engagement-rate-chart" height="200"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h3>Per-Account Performance (Last 30 Days)</h3>
+          <canvas id="account-comparison-chart" height="200"></canvas>
+        </div>
+
+        <div class="chart-box">
+          <h3>Top Posts by Engagement</h3>
+          <table class="table">
+            <thead><tr><th>Coin</th><th>Account</th><th>Views</th><th>Reactions</th><th>Engagement %</th><th>Time</th></tr></thead>
+            <tbody>
+              ${topPosts.posts.length === 0 ? '<tr><td colspan="6" class="empty">No engagement data yet.</td></tr>' : topPosts.posts.map(p => `
+                <tr>
+                  <td class="mono">${esc(p.coin || '—')}</td>
+                  <td>${esc(p.account_name)}</td>
+                  <td class="mono">${p.views || 0}</td>
+                  <td class="mono">${p.reactions || 0}</td>
+                  <td class="mono ${p.engagementRate > 5 ? 'green' : ''}">${p.engagementRate}%</td>
+                  <td class="mono">${fmtDate(p.posted_at)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="chart-box">
-        <h3>Per-account volume</h3>
+        <h3>Account Summary Table</h3>
         <table class="table">
-          <thead><tr><th>Account</th><th>Total</th><th>Today</th><th>Cap usage</th></tr></thead>
-          <tbody>${accRows || '<tr><td colspan="4" class="empty">No accounts.</td></tr>'}</tbody>
+          <thead><tr><th>Account</th><th>Mode</th><th>Posts</th><th>Views</th><th>Reactions</th><th>Avg Views</th><th>Avg Reactions</th><th>Engagement %</th></tr></thead>
+          <tbody>
+            ${performance.accounts.length === 0 ? '<tr><td colspan="8" class="empty">No accounts.</td></tr>' : performance.accounts.map(a => `
+              <tr>
+                <td>${esc(a.name)}</td>
+                <td><span class="pill">${esc(a.mode)}</span></td>
+                <td class="mono">${a.totalPosts}</td>
+                <td class="mono">${a.totalViews}</td>
+                <td class="mono">${a.totalReactions}</td>
+                <td class="mono">${a.avgViews}</td>
+                <td class="mono">${a.avgReactions}</td>
+                <td class="mono ${a.engagementRate > 5 ? 'green' : ''}">${a.engagementRate}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
         </table>
-      </div>`;
+      </div>
+    `;
+
+    // Initialize charts after DOM is ready
+    setTimeout(() => {
+      initEngagementChart(labels, viewsData, reactionsData, postsData);
+      initEngagementRateChart(labels, engagementRateData);
+      initAccountComparisonChart(performance.accounts);
+    }, 0);
+
   } catch (err) {
     view.innerHTML = `<div class="empty">Failed to load: ${esc(err.message)}</div>`;
+  }
+}
+
+function initEngagementChart(labels, views, reactions, posts) {
+  const ctx = document.getElementById('engagement-chart');
+  if (!ctx) return;
+  
+  engagementChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Views',
+          data: views,
+          borderColor: '#f0b90b',
+          backgroundColor: 'rgba(240,185,11,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Reactions',
+          data: reactions,
+          borderColor: '#2ea44f',
+          backgroundColor: 'rgba(46,164,79,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Posts',
+          data: posts,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.1)',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderDash: [5, 5],
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c2128',
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          borderColor: '#2d333b',
+          borderWidth: 1,
+          padding: 12,
+          displayColors: true
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(45,51,59,0.3)' },
+          ticks: { color: '#8b949e', font: { size: 11 } }
+        },
+        y: {
+          type: 'linear',
+          position: 'left',
+          grid: { color: 'rgba(45,51,59,0.3)' },
+          ticks: { color: '#8b949e', font: { size: 11 } },
+          beginAtZero: true
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#8b949e', font: { size: 11 } },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function initEngagementRateChart(labels, rates) {
+  const ctx = document.getElementById('engagement-rate-chart');
+  if (!ctx) return;
+
+  engagementRateChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Engagement Rate %',
+        data: rates,
+        backgroundColor: rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)'),
+        borderColor: rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b'),
+        borderWidth: 1,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c2128',
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          borderColor: '#2d333b',
+          borderWidth: 1,
+          padding: 12,
+          callbacks: {
+            label: (ctx) => `Engagement Rate: ${ctx.parsed.y}%`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(45,51,59,0.3)' }, ticks: { color: '#8b949e', font: { size: 11 } } },
+        y: { 
+          grid: { color: 'rgba(45,51,59,0.3)' }, 
+          ticks: { color: '#8b949e', font: { size: 11 }, callback: (v) => v + '%' },
+          beginAtZero: true,
+          suggestedMax: Math.max(10, Math.max(...rates) * 1.2)
+        }
+      }
+    }
+  });
+}
+
+function initAccountComparisonChart(accounts) {
+  const ctx = document.getElementById('account-comparison-chart');
+  if (!ctx) return;
+
+  const labels = accounts.map(a => a.name);
+  const viewsData = accounts.map(a => a.totalViews);
+  const reactionsData = accounts.map(a => a.totalReactions);
+  const postsData = accounts.map(a => a.totalPosts);
+
+  accountComparisonChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Total Views',
+          data: viewsData,
+          backgroundColor: 'rgba(240,185,11,0.6)',
+          borderColor: '#f0b90b',
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Total Reactions',
+          data: reactionsData,
+          backgroundColor: 'rgba(46,164,79,0.6)',
+          borderColor: '#2ea44f',
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Posts Count',
+          data: postsData,
+          backgroundColor: 'rgba(88,166,255,0.6)',
+          borderColor: '#58a6ff',
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { 
+          display: true,
+          position: 'bottom',
+          labels: { color: '#8b949e', font: { size: 11 }, usePointStyle: true }
+        },
+        tooltip: {
+          backgroundColor: '#1c2128',
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          borderColor: '#2d333b',
+          borderWidth: 1,
+          padding: 12
+        }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(45,51,59,0.3)' }, ticks: { color: '#8b949e', font: { size: 11 } } },
+        y: { 
+          type: 'linear',
+          position: 'left',
+          grid: { color: 'rgba(45,51,59,0.3)' },
+          ticks: { color: '#8b949e', font: { size: 11 } },
+          beginAtZero: true
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#8b949e', font: { size: 11 } },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+async function changeAnalyticsPeriod(days) {
+  try {
+    const [series, performance] = await Promise.all([
+      api(`/api/stats/engagement-series?days=${days}`),
+      api(`/api/stats/account-performance?days=${days}`)
+    ]);
+    
+    if (engagementChart) {
+      const labels = series.series.map(s => s.day.slice(5));
+      engagementChart.data.labels = labels;
+      engagementChart.data.datasets[0].data = series.series.map(s => s.views);
+      engagementChart.data.datasets[1].data = series.series.map(s => s.reactions);
+      engagementChart.data.datasets[2].data = series.series.map(s => s.posts);
+      engagementChart.update();
+    }
+
+    if (engagementRateChart) {
+      const labels = series.series.map(s => s.day.slice(5));
+      const rates = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
+      engagementRateChart.data.labels = labels;
+      engagementRateChart.data.datasets[0].data = rates;
+      engagementRateChart.data.datasets[0].backgroundColor = rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)');
+      engagementRateChart.data.datasets[0].borderColor = rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b');
+      engagementRateChart.update();
+    }
+
+    if (accountComparisonChart) {
+      accountComparisonChart.data.labels = performance.accounts.map(a => a.name);
+      accountComparisonChart.data.datasets[0].data = performance.accounts.map(a => a.totalViews);
+      accountComparisonChart.data.datasets[1].data = performance.accounts.map(a => a.totalReactions);
+      accountComparisonChart.data.datasets[2].data = performance.accounts.map(a => a.totalPosts);
+      accountComparisonChart.update();
+    }
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
+async function changeAnalyticsAccount(accountId) {
+  try {
+    const days = document.getElementById('analytics-period').value;
+    const url = accountId 
+      ? `/api/stats/engagement-series?days=${days}&accountId=${accountId}`
+      : `/api/stats/engagement-series?days=${days}`;
+    
+    const series = await api(url);
+    
+    if (engagementChart) {
+      const labels = series.series.map(s => s.day.slice(5));
+      engagementChart.data.labels = labels;
+      engagementChart.data.datasets[0].data = series.series.map(s => s.views);
+      engagementChart.data.datasets[1].data = series.series.map(s => s.reactions);
+      engagementChart.data.datasets[2].data = series.series.map(s => s.posts);
+      engagementChart.update();
+    }
+
+    if (engagementRateChart) {
+      const labels = series.series.map(s => s.day.slice(5));
+      const rates = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
+      engagementRateChart.data.labels = labels;
+      engagementRateChart.data.datasets[0].data = rates;
+      engagementRateChart.data.datasets[0].backgroundColor = rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)');
+      engagementRateChart.data.datasets[0].borderColor = rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b');
+      engagementRateChart.update();
+    }
+  } catch (err) {
+    toast(err.message, false);
   }
 }
 
@@ -404,5 +770,7 @@ window.closeModal = closeModal;
 window.setFilterAccount = setFilterAccount;
 window.gotoPage = gotoPage;
 window.reloadTimeline = reloadTimeline;
+window.changeAnalyticsPeriod = changeAnalyticsPeriod;
+window.changeAnalyticsAccount = changeAnalyticsAccount;
 
 boot();
