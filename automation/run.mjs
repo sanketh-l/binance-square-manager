@@ -70,14 +70,20 @@ async function makePost(topic) {
   const content = await generatePost(topic, price);
   if (!content) throw new Error('Content generation failed.');
   let imagePath = null;
+  let imageLog = [];
   // Try price chart first
   try {
     const prices = await fetchCoinGeckoChart(topic.symbol);
     if (prices && prices.length >= 2) {
       imagePath = drawPriceChart(topic.symbol, prices, IMAGES_DIR);
       console.log(`  [chart] Generated: ${imagePath}`);
+      imageLog.push('chart');
+    } else {
+      imageLog.push('no price data');
+      console.log('  [chart] No price data for chart');
     }
   } catch (err) {
+    imageLog.push(`chart: ${err.message}`);
     console.log(`  [chart] Failed: ${err.message}`);
   }
   // Fallback: Unsplash image
@@ -87,10 +93,17 @@ async function makePost(topic) {
       if (unsplashUrl) {
         imagePath = await downloadImage(unsplashUrl, `${topic.symbol}_unsplash.jpg`);
         console.log(`  [unsplash] Downloaded: ${imagePath}`);
+        imageLog.push('unsplash');
+      } else {
+        imageLog.push('unsplash: no image');
       }
     } catch (err) {
+      imageLog.push(`unsplash: ${err.message}`);
       console.log(`  [unsplash] Failed: ${err.message}`);
     }
+  } else if (!imagePath) {
+    imageLog.push('no UNSPLASH_ACCESS_KEY');
+    console.log('  [img] UNSPLASH_ACCESS_KEY not set - no fallback image');
   }
   if (!imagePath) console.log(`  [img] No image generated for ${topic.symbol}`);
   return {
@@ -99,7 +112,8 @@ async function makePost(topic) {
     format: topic.format || 'technical_analysis',
     hook: topic.hook || 'narrative',
     cashtag: '$' + topic.symbol.toUpperCase(),
-    imagePath
+    imagePath,
+    imageLog: imageLog.join('; ') || null
   };
 }
 
@@ -107,12 +121,17 @@ async function publishForAccount(account, post) {
   const key = await fetchDecryptedKey(account.id);
   if (!key) throw new Error('No decryptable key.');
   let imageUrl = null;
+  let imageError = null;
   if (post.imagePath) {
-    try { imageUrl = await uploadImage(key, post.imagePath); } catch (err) { console.log(`  [img] ${account.name}: ${err.message}`); }
+    try { imageUrl = await uploadImage(key, post.imagePath); } 
+    catch (err) { 
+      imageError = err.message;
+      console.log(`  [img] ${account.name}: ${err.message}`); 
+    }
   }
   const result = await publishPost(key, post.content, imageUrl);
   await new Promise((r) => setTimeout(r, 2000));
-  return { ...result, imageUrl };
+  return { ...result, imageUrl, imageError };
 }
 
 async function main() {
@@ -181,7 +200,7 @@ async function main() {
         postUrl: r.ok ? r.result.postUrl : null,
         contentId: r.ok ? r.result.contentId : null,
         status: r.ok ? 'published' : 'failed',
-        error: r.ok ? null : (r.error || null),
+        error: r.ok ? (r.result.imageError ? 'image: ' + r.result.imageError : null) : (r.error || null),
         format: null,
         hook: null,
         qualityScore: null
