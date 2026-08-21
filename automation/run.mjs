@@ -12,6 +12,11 @@ const IMAGES_DIR = 'images';
 const TIME = getTimeOfDay();
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || '';
 
+function log(...args) {
+  const ts = new Date().toISOString();
+  console.log(`[${ts}]`, ...args);
+}
+
 function loadUsed() {
   try {
     const data = JSON.parse(fs.readFileSync(USED_FILE, 'utf-8'));
@@ -37,19 +42,21 @@ async function downloadImage(url, filename) {
     const filePath = path.join(IMAGES_DIR, filename);
     fs.writeFileSync(filePath, Buffer.from(buf));
     return filePath;
-  } catch {
+  } catch (err) {
+    log('[downloadImage] error:', err.message);
     return null;
   }
 }
 
 function isDue(account) {
-  if (!account.enabled) return false;
+  if (!account.enabled) return { due: false, reason: 'disabled' };
   const cap = account.dailyCap || 0;
-  if (cap > 0 && (account.posts24h || 0) >= cap) return false;
+  if (cap > 0 && (account.posts24h || 0) >= cap) return { due: false, reason: `capped (${account.posts24h}/${cap})` };
   const interval = account.intervalMin || 60;
-  if (!account.lastPostAt) return true;
+  if (!account.lastPostAt) return { due: true, reason: 'never posted' };
   const elapsed = (Date.now() - new Date(account.lastPostAt).getTime()) / 60000;
-  return elapsed >= interval;
+  if (elapsed >= interval) return { due: true, reason: `interval elapsed (${Math.round(elapsed)}m >= ${interval}m)` };
+  return { due: false, reason: `interval not elapsed (${Math.round(elapsed)}m < ${interval}m)` };
 }
 
 async function researchTopic() {
@@ -76,15 +83,15 @@ async function makePost(topic) {
     const prices = await fetchCoinGeckoChart(topic.symbol);
     if (prices && prices.length >= 2) {
       imagePath = drawPriceChart(topic.symbol, prices, IMAGES_DIR);
-      console.log(`  [chart] Generated: ${imagePath}`);
+      log(`  [chart] Generated: ${imagePath}`);
       imageLog.push('chart');
     } else {
       imageLog.push('no price data');
-      console.log('  [chart] No price data for chart');
+      log('  [chart] No price data for chart');
     }
   } catch (err) {
     imageLog.push(`chart: ${err.message}`);
-    console.log(`  [chart] Failed: ${err.message}`);
+    log(`  [chart] Failed: ${err.message}`);
   }
   // Fallback: Unsplash image
   if (!imagePath && UNSPLASH_KEY) {
@@ -92,20 +99,20 @@ async function makePost(topic) {
       const unsplashUrl = await fetchUnsplashImage(`${topic.symbol} crypto trading chart`, UNSPLASH_KEY);
       if (unsplashUrl) {
         imagePath = await downloadImage(unsplashUrl, `${topic.symbol}_unsplash.jpg`);
-        console.log(`  [unsplash] Downloaded: ${imagePath}`);
+        log(`  [unsplash] Downloaded: ${imagePath}`);
         imageLog.push('unsplash');
       } else {
         imageLog.push('unsplash: no image');
       }
     } catch (err) {
       imageLog.push(`unsplash: ${err.message}`);
-      console.log(`  [unsplash] Failed: ${err.message}`);
+      log(`  [unsplash] Failed: ${err.message}`);
     }
   } else if (!imagePath) {
     imageLog.push('no UNSPLASH_ACCESS_KEY');
-    console.log('  [img] UNSPLASH_ACCESS_KEY not set - no fallback image');
+    log('  [img] UNSPLASH_ACCESS_KEY not set - no fallback image');
   }
-  if (!imagePath) console.log(`  [img] No image generated for ${topic.symbol}`);
+  if (!imagePath) log(`  [img] No image generated for ${topic.symbol}`);
   return {
     coin: topic.symbol,
     content,
@@ -126,7 +133,7 @@ async function publishForAccount(account, post) {
     try { imageUrl = await uploadImage(key, post.imagePath); } 
     catch (err) { 
       imageError = err.message;
-      console.log(`  [img] ${account.name}: ${err.message}`); 
+      log(`  [img] ${account.name}: ${err.message}`); 
     }
   }
   const result = await publishPost(key, post.content, imageUrl);
@@ -135,19 +142,34 @@ async function publishForAccount(account, post) {
 }
 
 async function main() {
-  console.log('=== Binance Square Multi-Account Runner ===');
-  console.log(`Run ${RUN_ID} | ${TIME.period} | UTC ${TIME.utcHour}\n`);
+  log('=== Binance Square Multi-Account Runner ===');
+  log(`Run ${RUN_ID} | ${TIME.period} | UTC ${TIME.utcHour}`);
+  log(`Env check: API_URL=${process.env.API_URL ? 'SET' : 'MISSING'}, BOT_TOKEN=${process.env.BOT_TOKEN ? 'SET' : 'MISSING'}, GROQ=${process.env.GROQ_API_KEY ? 'SET' : 'MISSING'}, UNSPLASH=${UNSPLASH_KEY ? 'SET' : 'MISSING'}`);
 
-  const accounts = await fetchAccounts();
+  let accounts;
+  try {
+    accounts = await fetchAccounts();
+    log(`Fetched ${accounts?.length || 0} accounts from API`);
+  } catch (err) {
+    log('FATAL: Failed to fetch accounts:', err.message);
+    process.exit(1);
+  }
+
   if (!accounts || accounts.length === 0) {
-    console.log('No accounts configured. Nothing to do.');
+    log('No accounts configured. Nothing to do.');
     return;
   }
 
-  const due = accounts.filter(isDue);
-  console.log(`Accounts: ${accounts.length}, due now: ${due.length}`);
+  // Log each account's due status
+  accounts.forEach((a) => {
+    const dueCheck = isDue(a);
+    log(`  Account: ${a.name} | mode: ${a.mode} | enabled: ${a.enabled} | posts24h: ${a.posts24h}/${a.dailyCap} | lastPost: ${a.lastPostAt || 'never'} | due: ${dueCheck.due} (${dueCheck.reason})`);
+  });
+
+  const due = accounts.filter((a) => isDue(a).due);
+  log(`Accounts due now: ${due.length}/${accounts.length}`);
   if (due.length === 0) {
-    console.log('No accounts due yet. Exiting.');
+    log('No accounts due yet. Exiting.');
     return;
   }
 
@@ -161,15 +183,15 @@ async function main() {
       const post = await makePost(topic);
       const result = await publishForAccount(account, post);
       results.push({ account, ok: true, coin: post.coin, text: post.content, result });
-      console.log(`[${account.name}] unique => ${result.postUrl}`);
+      log(`[${account.name}] unique => ${result.postUrl} | img: ${result.imageUrl ? 'OK' : 'none'}`);
     } catch (err) {
-      console.log(`[${account.name}] unique failed: ${err.message}`);
+      log(`[${account.name}] unique failed: ${err.message}`);
       results.push({ account, ok: false, error: err.message });
     }
   }
 
   if (broadcastActs.length > 0) {
-    console.log('\n=== Generating broadcast post ===');
+    log('\n=== Generating broadcast post ===');
     try {
       const topic = await researchTopic();
       const post = await makePost(topic);
@@ -177,19 +199,19 @@ async function main() {
         try {
           const result = await publishForAccount(account, post);
           results.push({ account, ok: true, coin: post.coin, text: post.content, result });
-          console.log(`[${account.name}] Broadcast => ${result.postUrl}`);
+          log(`[${account.name}] Broadcast => ${result.postUrl} | img: ${result.imageUrl ? 'OK' : 'none'}`);
         } catch (err) {
-          console.log(`[${account.name}] Broadcast failed: ${err.message}`);
+          log(`[${account.name}] Broadcast failed: ${err.message}`);
           results.push({ account, ok: false, coin: post.coin, error: err.message });
         }
         if (i < broadcastActs.length - 1) await new Promise((r) => setTimeout(r, 3000));
       }
     } catch (err) {
-      console.log(`Broadcast generation failed: ${err.message}`);
+      log(`Broadcast generation failed: ${err.message}`);
     }
   }
 
-  console.log('\n=== Reporting results ===');
+  log('\n=== Reporting results ===');
   for (const r of results) {
     try {
       await reportPost({
@@ -206,12 +228,12 @@ async function main() {
         qualityScore: null
       });
     } catch (err) {
-      console.log(`  Report failed for ${r.account.name}: ${err.message}`);
+      log(`  Report failed for ${r.account.name}: ${err.message}`);
     }
   }
 
   const okCount = results.filter((r) => r.ok).length;
-  console.log(`\nDone: ${okCount}/${results.length} published`);
+  log(`\nDone: ${okCount}/${results.length} published`);
 }
 
-main().catch((err) => { console.error('Fatal:', err); process.exit(1); });
+main().catch((err) => { log('Fatal:', err); process.exit(1); });
