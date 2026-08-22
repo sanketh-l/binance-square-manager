@@ -1,4 +1,4 @@
-import { createAccount, updateAccount, deleteAccount, getDecryptedKey, serializeAccount } from './accounts.js';
+﻿import { createAccount, updateAccount, deleteAccount, getDecryptedKey, serializeAccount } from './accounts.js';
 import { listPosts, recordPost, overview } from './posts.js';
 
 const CORS_HEADERS = {
@@ -116,13 +116,13 @@ export default {
 
     // ---- Overview
     if (path === '/api/stats/overview' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const accountId = url.searchParams.get('accountId') || undefined;
       return ok(await overview(db, accountId));
     }
 
     if (path === '/api/stats/series' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 14)));
       const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
       start.setUTCHours(0, 0, 0, 0);
@@ -143,7 +143,7 @@ export default {
 
     // ---- Engagement time-series (views/reactions over time)
     if (path === '/api/stats/engagement-series' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
       const accountId = url.searchParams.get('accountId') || undefined;
       const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -174,7 +174,7 @@ export default {
 
     // ---- Per-account performance comparison
     if (path === '/api/stats/account-performance' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
       const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
       start.setUTCHours(0, 0, 0, 0);
@@ -210,7 +210,7 @@ export default {
 
     // ---- Top posts by engagement
     if (path === '/api/stats/top-posts' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
       const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 10)));
       const sortBy = url.searchParams.get('sortBy') || 'views';

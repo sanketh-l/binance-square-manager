@@ -25,3 +25,15 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           SCRAPE_LIMIT: ${{ vars.SCRAPE_LIMIT || '50' }}
         run: node scrape.mjs
+
+      - name: Debug - dump live analytics payload
+        working-directory: automation
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          echo "=== engagement-series (7d) ==="
+          curl -s -H "X-Bot-Token: $BOT_TOKEN" "$API_URL/api/stats/engagement-series?days=7" | tail -c 1200
+          echo ""
+          echo "=== account-performance (30d) ==="
+          curl -s -H "X-Bot-Token: $BOT_TOKEN" "$API_URL/api/stats/account-performance?days=30" | head -c 1500
