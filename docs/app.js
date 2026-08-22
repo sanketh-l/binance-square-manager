@@ -2,14 +2,65 @@ const $ = (sel) => document.querySelector(sel);
 
 let API_URL = localStorage.getItem('bm_api') || '';
 let TOKEN = localStorage.getItem('bm_token') || '';
-let state = { accounts: [], page: 1, total: 0, filterAccount: '', filterStatus: '', series: [] };
 
-function toast(msg, ok = true) {
-  const el = document.createElement('div');
-  el.className = 'toast ' + (ok ? 'ok' : 'err');
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+const state = {
+  accounts: [],
+  page: 1,
+  total: 0,
+  tlAccount: '',
+  tlStatus: '',
+  tlQuery: '',
+  periodDays: 30,
+  anAccount: '',
+  topSort: 'views',
+  topPosts: [],
+  charts: {},
+  currentTab: 'overview'
+};
+
+const ACCENT = '#f0b90b';
+const GREEN = '#2ebd85';
+const RED = '#f6465d';
+const BLUE = '#7aa2f7';
+const GRID = 'rgba(255,255,255,0.06)';
+const TICK = '#63636e';
+const MONO = '"IBM Plex Mono", monospace';
+
+const ICONS = {
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+  power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  external: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>'
+};
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function fmtNum(n) {
+  return Number(n || 0).toLocaleString('en-IN');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '\u2014';
+  const d = new Date(iso);
+  if (isNaN(d)) return '\u2014';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtRel(iso) {
+  if (!iso) return 'never';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return '\u2014';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  return d + 'd ago';
 }
 
 async function api(path, options = {}) {
@@ -25,41 +76,134 @@ async function api(path, options = {}) {
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = { error: text }; }
-  if (!res.ok) throw new Error(json.error || res.status);
+  if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
   return json;
 }
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+/* ---------- toast & modal ---------- */
+
+function toast(msg, ok = true) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
 }
 
-function nextCronTime() {
-  // Cron: 0 * * * * (top of every hour)
+function closeModal() { document.querySelector('.modal-back')?.remove(); }
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------- skeletons & empties ---------- */
+
+function skeletonMetrics() {
+  return '<div class="metric-row">' + Array(5).fill('<div class="metric"><div class="sk-line" style="width:60%"></div><div class="sk-line" style="width:40%;height:22px"></div></div>').join('') + '</div>';
+}
+
+function skeletonPanel(h) {
+  return '<div class="panel panel-pad">' + Array(Math.max(3, h)).fill('<div class="sk-line"></div>').join('') + '</div>';
+}
+
+function emptyBox(title, hint) {
+  return '<div class="empty">' + ICONS.inbox + '<div class="e-title">' + esc(title) + '</div><div class="e-hint">' + esc(hint) + '</div></div>';
+}
+
+/* ---------- countdown & auto-refresh ---------- */
+
+function tickCountdown() {
+  const el = $('#next-run-txt');
+  if (!el) return;
   const now = new Date();
   const next = new Date(now);
-  next.setMinutes(0, 0, 0);
-  if (next <= now) next.setHours(next.getHours() + 1);
-  return next.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+  next.setUTCHours(now.getUTCHours() + 1, 0, 0, 0);
+  const s = Math.max(0, Math.floor((next - now) / 1000));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  el.textContent = 'run in ' + mm + ':' + ss;
+}
+setInterval(tickCountdown, 1000);
+
+function applyAutoUI() {
+  const btn = $('#auto-btn');
+  if (!btn) return;
+  btn.classList.toggle('on', state.auto === true);
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function autoTick() {
+  if (!state.auto) return;
+  try { await loadCurrent(true); } catch {}
 }
 
-/* ---------------- Login ---------------- */
+function toggleAuto() {
+  state.auto = !(state.auto === true);
+  localStorage.setItem('bm_auto', state.auto ? '1' : '');
+  applyAutoUI();
+  toast(state.auto ? 'Auto-refresh on (30s)' : 'Auto-refresh off');
+}
+setInterval(autoTick, 30000);
+
+/* ---------- navigation ---------- */
+
+const PAGES = {
+  overview: { t: 'Overview', sub: 'System health at a glance' },
+  accounts: { t: 'Accounts', sub: 'Poster identities and limits' },
+  timeline: { t: 'Timeline', sub: 'Every post, every result' },
+  analytics: { t: 'Analytics', sub: 'Reach and engagement' }
+};
+
+function setPage(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + tab));
+  const p = PAGES[tab];
+  $('#page-title').textContent = p.t;
+  $('#page-sub').textContent = p.sub;
+  renderCtxAction(tab);
+  loadCurrent();
+}
+
+function renderCtxAction(tab) {
+  const slot = $('#ctx-slot');
+  slot.innerHTML = '';
+  if (tab === 'accounts') {
+    slot.innerHTML = '<button class="btn primary sm" onclick="openAddAccount()">+ Add account</button>';
+  } else if (tab === 'timeline') {
+    slot.innerHTML = '<button class="btn ghost sm" onclick="exportCSV()" title="Download CSV">' + ICONS.download + ' Export</button>';
+  }
+}
+
+async function loadCurrent(silent) {
+  const tab = state.currentTab;
+  if (!silent) {
+    if (tab === 'overview') $('#view-overview').innerHTML = skeletonMetrics() + skeletonPanel(4);
+    if (tab === 'accounts') $('#view-accounts').innerHTML = skeletonPanel(6);
+    if (tab === 'timeline') $('#view-timeline').innerHTML = skeletonPanel(8);
+    if (tab === 'analytics') $('#view-analytics').innerHTML = skeletonMetrics() + skeletonPanel(5);
+  }
+  try {
+    if (tab === 'overview') await loadOverview();
+    else if (tab === 'accounts') await loadAccounts();
+    else if (tab === 'timeline') await loadTimeline();
+    else if (tab === 'analytics') await loadAnalytics();
+  } catch (err) {
+    if (!silent) $('#' + 'view-' + tab).innerHTML = emptyBox('Failed to load', err.message);
+  }
+}
+
+/* ---------- login / boot ---------- */
 
 function initLogin() {
   if (API_URL) $('#login-api').value = API_URL;
-  $('#login-btn').addEventListener('click', async () => {
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
     API_URL = $('#login-api').value.trim().replace(/\/+$/, '');
     TOKEN = $('#login-token').value.trim();
-    if (!API_URL || !TOKEN) { $('#login-error').textContent = 'Enter both API URL and token.'; return; }
-    $('#login-btn').disabled = true;
+    if (!API_URL || !TOKEN) { $('#login-error').textContent = 'Enter both API URL and admin token.'; return; }
+    const btn = $('#login-btn');
+    btn.disabled = true;
+    btn.textContent = 'Connecting\u2026';
     try {
-      const env = await api('/api/health/env');
-      if (!env.adminConfigured) throw new Error('ADMIN_TOKEN not configured on the Worker');
+      await api('/api/health/env');
       localStorage.setItem('bm_api', API_URL);
       localStorage.setItem('bm_token', TOKEN);
       $('#login-error').textContent = '';
@@ -67,172 +211,178 @@ function initLogin() {
     } catch (err) {
       $('#login-error').textContent = 'Connection failed: ' + err.message;
     }
-    $('#login-btn').disabled = false;
+    btn.disabled = false;
+    btn.textContent = 'Connect';
   });
 }
 
 function showApp() {
-  $('#login-screen').classList.add('hidden');
+  $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  switchTab('overview');
-  loadOverview();
+  $('#conn-url').textContent = API_URL.replace(/^https?:\/\//, '');
+  state.auto = localStorage.getItem('bm_auto') === '1';
+  applyAutoUI();
+  setPage('overview');
+  tickCountdown();
 }
 
-/* ---------------- Tabs ---------------- */
-
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
-  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-  $('#view-' + tab).classList.add('active');
-}
-
-function initTabs() {
-  document.querySelectorAll('.tab').forEach((t) =>
-    t.addEventListener('click', () => {
-      const tab = t.dataset.tab;
-      switchTab(tab);
-      if (tab === 'overview') loadOverview();
-      if (tab === 'accounts') loadAccounts();
-      if (tab === 'timeline') loadTimeline();
-      if (tab === 'analytics') loadAnalytics();
-    })
-  );
+function initShell() {
+  document.querySelectorAll('.nav-item').forEach((b) => b.addEventListener('click', () => setPage(b.dataset.tab)));
+  $('#refresh-btn').addEventListener('click', () => loadCurrent());
+  $('#auto-btn').addEventListener('click', toggleAuto);
   $('#logout-btn').addEventListener('click', () => {
     localStorage.removeItem('bm_token');
     TOKEN = '';
-    $('#app').classList.add('hidden');
-    $('#login-screen').classList.remove('hidden');
+    location.reload();
   });
 }
 
-/* ---------------- Overview ---------------- */
+async function boot() {
+  initLogin();
+  initShell();
+  if (TOKEN && API_URL) {
+    try {
+      await api('/api/health/env');
+      showApp();
+      return;
+    } catch {}
+    localStorage.removeItem('bm_token');
+    TOKEN = '';
+  }
+  $('#login').classList.remove('hidden');
+}
+
+/* ================= OVERVIEW ================= */
 
 async function loadOverview() {
   const view = $('#view-overview');
-  view.innerHTML = '<div class="empty">Loading…</div>';
-  try {
-    const data = await api('/api/stats/overview');
-    state.accounts = data.accounts;
-    const t = data.totals;
-    const successRate = t.total > 0 ? Math.round((t.published / t.total) * 100) : 0;
-    view.innerHTML = `
-      <div class="stat-grid">
-        <div class="stat-card"><div class="label">Total posts</div><div class="value accent">${t.total}</div></div>
-        <div class="stat-card"><div class="label">Today</div><div class="value">${t.today}</div></div>
-        <div class="stat-card"><div class="label">Published</div><div class="value green">${t.published}</div></div>
-        <div class="stat-card"><div class="label">Failed</div><div class="value red">${t.failed}</div></div>
-        <div class="stat-card"><div class="label">Success rate</div><div class="value">${successRate}%</div></div>
-        <div class="stat-card"><div class="label">Next auto-run</div><div class="value accent">${nextCronTime()}</div></div>
-      </div>
-      <h3 class="section-title">Accounts (${data.accounts.length})</h3>
-      <div class="account-grid">
-        ${data.accounts.length === 0 ? '<div class="empty">No accounts yet — add one in the Accounts tab.</div>' : data.accounts.map(accountCard).join('')}
-      </div>
-      ${data.lastPosts.length ? `
-        <h3 class="section-title mt20">Latest posts</h3>
-        ${postTable(data.lastPosts)}
-      ` : ''}
-    `;
-  } catch (err) {
-    view.innerHTML = `<div class="empty">Failed to load: ${esc(err.message)}</div>`;
+  const data = await api('/api/stats/overview');
+  state.accounts = data.accounts;
+  const t = data.totals;
+  const rate = t.total > 0 ? Math.round((t.published / t.total) * 100) : 0;
+
+  const metric = (label, value, cls, foot) =>
+    '<div class="metric"><div class="m-label">' + label + '</div><div class="m-value ' + (cls || '') + '">' + value + '</div>' + (foot ? '<div class="m-foot">' + foot + '</div>' : '') + '</div>';
+
+  view.innerHTML =
+    '<div class="metric-row">' +
+    metric('Total posts', fmtNum(t.total), '', fmtNum(t.published) + ' published \u00b7 ' + fmtNum(t.failed) + ' failed') +
+    metric('Today (UTC)', fmtNum(t.today), '', 'rolling midnight') +
+    metric('Success rate', rate + '%', rate >= 90 ? 'green' : (rate >= 60 ? '' : 'red'), 'published / total') +
+    metric('Accounts', data.accounts.length, '', data.accounts.filter((a) => a.enabled).length + ' enabled') +
+    metric('Next auto-run', '<span id="ov-next">—</span>', 'gold', 'hourly at :00 UTC') +
+    '</div>' +
+    '<div class="section-head"><h2>Accounts</h2><span class="sh-side">' + data.accounts.length + ' configured</span></div>' +
+    (data.accounts.length === 0
+      ? '<div class="panel">' + emptyBox('No accounts yet', 'Open the Accounts page and connect your first Binance Square identity.') + '</div>'
+      : '<div class="account-grid">' + data.accounts.map(accountCard).join('') + '</div>') +
+    '<div class="section-head"><h2>Latest posts</h2><span class="sh-side">most recent 5</span></div>' +
+    (data.lastPosts.length
+      ? '<div class="panel table-wrap">' + postTable(data.lastPosts, true) + '</div>'
+      : '<div class="panel">' + emptyBox('No posts yet', 'Once the hourly cron fires, results land here.') + '</div>');
+
+  const ovNext = $('#ov-next');
+  if (ovNext) {
+    const upd = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setUTCMinutes(0, 0, 0);
+      if (next <= now) next.setUTCHours(next.getUTCHours() + 1);
+      const m = Math.floor((next - now) / 60000);
+      ovNext.textContent = m + ' min';
+    };
+    upd();
+    setInterval(upd, 15000);
   }
 }
 
 function accountCard(a) {
   const capped = a.dailyCap > 0 && a.postsToday >= a.dailyCap;
-  return `
-    <div class="account-card">
-      <h3><span class="dot ${a.enabled ? 'on' : 'off'}"></span>${esc(a.name)} <span class="pill">${esc(a.mode)}</span> ${capped ? '<span class="pill capped">capped</span>' : ''}</h3>
-      <div class="acc-meta">
-        <span>${a.totalPosts} posts</span><span>${a.postsToday} today</span>
-        <span>every ${a.intervalMin}m</span><span>cap ${a.dailyCap}/day</span>
-        <span>last: ${fmtDate(a.lastPostAt)}</span>
-      </div>
-      <div class="acc-actions">
-        <button class="ghost" onclick="openEditAccount(${a.id})">Edit</button>
-        <button class="ghost" onclick="toggleAccount(${a.id})">${a.enabled ? 'Pause' : 'Resume'}</button>
-        <button class="danger" onclick="deleteAccount(${a.id})">Delete</button>
-      </div>
-    </div>`;
+  const pct = a.dailyCap > 0 ? Math.min(100, Math.round((a.postsToday / a.dailyCap) * 100)) : 0;
+  return (
+    '<div class="account-card">' +
+    '<div class="acc-top">' +
+    '<div class="acc-name"><span class="dot ' + (a.enabled ? 'ok' : 'off') + '"></span><span class="nm">' + esc(a.name) + '</span></div>' +
+    '<span class="pill ' + (capped ? 'red' : 'gold') + '">' + esc(capped ? 'capped' : a.mode) + '</span>' +
+    '</div>' +
+    '<div class="acc-stats">' +
+    '<div class="acc-stat"><div class="k">Total</div><div class="v">' + fmtNum(a.totalPosts) + '</div></div>' +
+    '<div class="acc-stat"><div class="k">Today</div><div class="v">' + a.postsToday + ' / ' + (a.dailyCap > 0 ? a.dailyCap : '\u221e') + '</div></div>' +
+    '<div class="acc-stat"><div class="k">Interval</div><div class="v">' + a.intervalMin + ' min</div></div>' +
+    '<div class="acc-stat"><div class="k">Last post</div><div class="v">' + esc(fmtRel(a.lastPostAt)) + '</div></div>' +
+    '</div>' +
+    '<div class="cap-bar"><i style="width:' + pct + '%"></i></div>' +
+    '<div class="acc-actions" style="margin-top:14px">' +
+    '<button class="btn ghost sm" onclick="openEditAccount(' + a.id + ')">' + ICONS.pencil + ' Edit</button>' +
+    '<button class="btn ghost sm" onclick="toggleAccount(' + a.id + ')">' + ICONS.power + ' ' + (a.enabled ? 'Pause' : 'Resume') + '</button>' +
+    '<button class="btn danger sm" onclick="deleteAccount(' + a.id + ')">' + ICONS.trash + '</button>' +
+    '</div></div>');
 }
 
-/* ---------------- Accounts ---------------- */
+/* ================= ACCOUNTS ================= */
 
 let editingId = null;
 
 async function loadAccounts() {
   const view = $('#view-accounts');
-  view.innerHTML = '<div class="empty">Loading…</div>';
-  try {
-    const data = await api('/api/stats/overview');
-    state.accounts = data.accounts;
-    view.innerHTML = `
-      <div class="mb16"><button onclick="openAddAccount()">+ Add account</button></div>
-      <div class="account-grid">
-        ${data.accounts.length === 0 ? '<div class="empty">No accounts yet.</div>' : data.accounts.map(accountCard).join('')}
-      </div>
-    `;
-  } catch (err) {
-    view.innerHTML = `<div class="empty">Failed to load: ${esc(err.message)}</div>`;
-  }
+  const data = await api('/api/stats/overview');
+  state.accounts = data.accounts;
+  view.innerHTML =
+    (data.accounts.length === 0
+      ? '<div class="panel">' + emptyBox('No accounts connected', 'Add one below with its name and Binance Square OpenAPI key.') + '</div>'
+      : '<div class="account-grid">' + data.accounts.map(accountCard).join('') + '</div>');
 }
 
-function accountModalHtml(a = {}) {
-  return `
-    <div class="modal">
-      <h2>${a.id ? 'Edit account' : 'Add account'}</h2>
-      <label>Account name</label>
-      <input id="f-name" value="${esc(a.name || '')}" placeholder="e.g. Main account, Backup">
-      <label>Binance Square API key</label>
-      <input id="f-key" value="" placeholder="${a.keyMask ? 'Leave blank to keep ' + esc(a.keyMask) : 'Paste your Square OpenAPI key'}" ${a.id ? 'type="password"' : ''}>
-      <div class="row-2">
-        <div>
-          <label>Mode</label>
-          <select id="f-mode">
-            <option value="broadcast" ${a.mode === 'broadcast' ? 'selected' : ''}>Broadcast (share same post)</option>
-            <option value="unique" ${a.mode === 'unique' ? 'selected' : ''}>Unique (own research)</option>
-          </select>
-        </div>
-        <div>
-          <label>Interval (minutes)</label>
-          <input id="f-interval" type="number" min="1" value="${a.intervalMin || 60}">
-        </div>
-      </div>
-      <div class="row-2">
-        <div>
-          <label>Daily cap</label>
-          <input id="f-cap" type="number" min="1" value="${a.dailyCap || 50}">
-        </div>
-        <div>
-          <label>Status</label>
-          <select id="f-enabled">
-            <option value="1" ${a.enabled === false ? '' : 'selected'}>Enabled</option>
-            <option value="0" ${a.enabled === false ? 'selected' : ''}>Disabled</option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="ghost" onclick="closeModal()">Cancel</button>
-        <button id="f-save" onclick="saveAccount()">Save</button>
-      </div>
-    </div>`;
+function accountModalHtml(a) {
+  a = a || {};
+  const keyField =
+    '<div class="field"><label>Binance Square API key</label>' +
+    '<input id="f-key" type="' + (a.id ? 'password' : 'text') + '" placeholder="' +
+    (a.keyMask ? 'Leave blank to keep ' + esc(a.keyMask) : 'Paste your Square OpenAPI key') + '"></div>';
+  return (
+    '<input type="hidden" id="m-title" value="' + (a.id ? 'Edit account' : 'Add account') + '">' +
+    '<div class="field"><label>Account name</label><input id="f-name" value="' + esc(a.name || '') + '" placeholder="Main, chota, backup\u2026"></div>' +
+    keyField +
+    '<div class="row-2">' +
+    '<div class="field"><label>Mode</label><select id="f-mode">' +
+    '<option value="broadcast"' + (a.mode === 'broadcast' ? ' selected' : '') + '>Broadcast</option>' +
+    '<option value="unique"' + (a.mode !== 'unique' ? ' selected' : '') + '>Unique</option>' +
+    '</select></div>' +
+    '<div class="field"><label>Interval (min)</label><input id="f-interval" type="number" min="1" value="' + (a.intervalMin || 60) + '"></div>' +
+    '</div>' +
+    '<div class="row-2">' +
+    '<div class="field"><label>Daily cap</label><input id="f-cap" type="number" min="1" value="' + (a.dailyCap || 50) + '"></div>' +
+    '<div class="field"><label>Status</label><select id="f-enabled">' +
+    '<option value="1"' + (a.enabled === false ? '' : ' selected') + '>Enabled</option>' +
+    '<option value="0"' + (a.enabled === false ? ' selected' : '') + '>Disabled</option>' +
+    '</select></div>' +
+    '</div>' +
+    '<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn primary" onclick="saveAccount()">' + (a.id ? 'Save changes' : 'Create account') + '</button></div>');
 }
 
-function openModal(html) {
+function openAddAccount() {
+  editingId = null;
   const back = document.createElement('div');
   back.className = 'modal-back';
-  back.innerHTML = html;
+  back.innerHTML = '<div class="modal"><div class="modal-head"><h2>Add account</h2>' +
+    '<button class="modal-x" onclick="closeModal()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>' +
+    accountModalHtml(null) + '</div>';
   back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
   document.body.appendChild(back);
 }
 
-function closeModal() { document.querySelector('.modal-back')?.remove(); }
-
-function openAddAccount() { editingId = null; openModal(accountModalHtml()); }
-
 function openEditAccount(id) {
   const a = state.accounts.find((x) => x.id === id);
-  if (a) { editingId = id; openModal(accountModalHtml(a)); }
+  if (!a) return;
+  editingId = id;
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = '<div class="modal"><div class="modal-head"><h2>Edit account</h2>' +
+    '<button class="modal-x" onclick="closeModal()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>' +
+    accountModalHtml(a) + '</div>';
+  back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
+  document.body.appendChild(back);
 }
 
 async function saveAccount() {
@@ -253,7 +403,7 @@ async function saveAccount() {
       await api('/api/accounts', { method: 'POST', body });
     }
     closeModal();
-    toast(editingId ? 'Account updated' : 'Account added');
+    toast(editingId ? 'Account updated' : 'Account created');
     loadAccounts();
     loadOverview();
   } catch (err) {
@@ -267,510 +417,353 @@ async function toggleAccount(id) {
   try {
     await api('/api/accounts/' + id, { method: 'PATCH', body: { enabled: !a.enabled } });
     toast(a.enabled ? 'Account paused' : 'Account resumed');
-    loadAccounts(); loadOverview();
+    loadAccounts();
   } catch (err) { toast(err.message, false); }
 }
 
 async function deleteAccount(id) {
-  if (!confirm('Delete this account and all its post history?')) return;
+  const a = state.accounts.find((x) => x.id === id);
+  if (!confirm('Delete "' + (a ? a.name : 'this account') + '" and all its post history?')) return;
   try {
     await api('/api/accounts/' + id, { method: 'DELETE' });
     toast('Account deleted');
-    loadAccounts(); loadOverview();
+    loadAccounts();
+    loadOverview();
   } catch (err) { toast(err.message, false); }
 }
 
-/* ---------------- Timeline ---------------- */
+/* ================= TIMELINE ================= */
 
-function postTable(posts) {
-  return `
-    <table class="table">
-      <thead><tr><th>Time</th><th>Account</th><th>Coin</th><th>Post</th><th>Image</th><th>Status</th><th>Link</th></tr></thead>
-      <tbody>
-        ${posts.map((p) => `
-          <tr>
-            <td class="mono">${fmtDate(p.posted_at)}</td>
-            <td>${esc(p.account_name || '')}</td>
-            <td class="mono">${esc(p.coin || '')}</td>
-            <td class="post-text">${esc((p.text || '').substring(0, 160))}${(p.text || '').length > 160 ? '…' : ''}</td>
-            <td>${p.image ? `<img class="thumb" src="${esc(p.image)}" alt="">` : '—'}</td>
-            <td><span class="status ${esc(p.status)}">${esc(p.status)}</span>${p.error ? `<div class="muted" style="font-size:11px">${esc(p.error)}</div>` : ''}</td>
-            <td>${p.post_url && p.post_url !== 'N/A' ? `<a href="${esc(p.post_url)}" target="_blank" rel="noopener">view ↗</a>` : '—'}</td>
-          </tr>
-        `).join('') || '<tr><td colspan="7" class="empty">No posts found.</td></tr>'}
-      </tbody>
-    </table>`;
+function postCell(p) {
+  const txt = (p.text || '').replace(/\s+/g, ' ').trim();
+  const short = txt.length > 140 ? txt.slice(0, 140) + '\u2026' : txt;
+  return '<td class="post-cell">' + esc(short) + '</td>';
 }
+
+function postTable(posts, compact) {
+  return '<table class="tbl"><thead><tr>' +
+    '<th>When</th>' + (compact ? '' : '<th>Account</th>') + '<th>Coin</th><th>Post</th><th>Img</th>' +
+    (compact ? '' : '<th>Views</th><th>Rcts</th>') +
+    '<th>Status</th><th>Link</th></tr></thead><tbody>' +
+    (posts.map((p) =>
+      '<tr>' +
+      '<td class="mono" title="' + esc(fmtDate(p.posted_at)) + '" style="white-space:nowrap">' + esc(fmtRel(p.posted_at)) + '</td>' +
+      (compact ? '' : '<td>' + esc(p.account_name || '') + '</td>') +
+      '<td class="mono gold">$' + esc(p.coin || '\u2014') + '</td>' +
+      postCell(p) +
+      '<td>' + (p.image ? '<img class="thumb" loading="lazy" src="' + esc(p.image) + '" alt="">' : '<span class="muted">\u2014</span>') + '</td>' +
+      (compact ? '' : '<td class="mono">' + (p.views != null ? fmtNum(p.views) : '\u2014') + '</td><td class="mono">' + (p.reactions != null ? fmtNum(p.reactions) : '\u2014') + '</td>') +
+      '<td><span class="pill ' + (p.status === 'published' ? 'green' : 'red') + '">' + esc(p.status) + '</span>' +
+      (p.error ? '<div class="mono muted" style="font-size:10.5px;margin-top:4px;max-width:180px">' + esc(String(p.error).slice(0, 80)) + '</div>' : '') + '</td>' +
+      '<td>' + (p.post_url && p.post_url !== 'N/A'
+        ? '<a href="' + esc(p.post_url) + '" target="_blank" rel="noopener" title="Open post">' + ICONS.external + '</a>'
+        : '<span class="muted">\u2014</span>') + '</td>' +
+      '</tr>').join('') ||
+      '<tr><td colspan="9"><div class="empty">' + ICONS.inbox + '<div class="e-title">Nothing here</div><div class="e-hint">No posts match these filters.</div></div></td></tr>') +
+    '</tbody></table>';
+}
+
+let searchTimer = null;
 
 async function loadTimeline() {
   const view = $('#view-timeline');
-  view.innerHTML = '<div class="empty">Loading…</div>';
+  if (state.accounts.length === 0) {
+    const ov = await api('/api/stats/overview');
+    state.accounts = ov.accounts;
+  }
+  const params = new URLSearchParams({ page: state.page, limit: '20' });
+  if (state.tlAccount) params.set('accountId', state.tlAccount);
+  const data = await api('/api/posts?' + params.toString());
+  let rows = data.posts;
+  state.total = data.total;
+
+  let filtered = rows;
+  if (state.tlStatus) filtered = filtered.filter((p) => p.status === state.tlStatus);
+  if (state.tlQuery) {
+    const q = state.tlQuery.toLowerCase();
+    filtered = filtered.filter((p) =>
+      (p.text || '').toLowerCase().includes(q) ||
+      (p.coin || '').toLowerCase().includes(q) ||
+      (p.account_name || '').toLowerCase().includes(q));
+  }
+
+  const totalPages = Math.max(1, Math.ceil(state.total / 20));
+  view.innerHTML =
+    '<div class="controls">' +
+    '<select onchange="setTlAccount(this.value)">' +
+    '<option value="">All accounts</option>' +
+    state.accounts.map((a) => '<option value="' + a.id + '"' + (String(state.tlAccount) === String(a.id) ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('') +
+    '</select>' +
+    '<select onchange="setTlStatus(this.value)">' +
+    '<option value="">Any status</option>' +
+    '<option value="published"' + (state.tlStatus === 'published' ? ' selected' : '') + '>Published</option>' +
+    '<option value="failed"' + (state.tlStatus === 'failed' ? ' selected' : '') + '>Failed</option>' +
+    '</select>' +
+    '<input type="search" placeholder="Search text, coin, account\u2026" value="' + esc(state.tlQuery) + '" oninput="tlSearch(this.value)">' +
+    '</div>' +
+    '<div class="panel table-wrap">' + (rows.length === 0
+      ? emptyBox('No posts found', 'Published results appear here once the cron runs.')
+      : postTable(filtered, false)) + '</div>' +
+    '<div class="pagination">' +
+    '<button class="btn ghost sm"' + (state.page <= 1 ? ' disabled' : '') + ' onclick="gotoPage(' + (state.page - 1) + ')">\u2190 Prev</button>' +
+    '<span class="pg-info mono">page ' + state.page + ' / ' + totalPages + ' \u00b7 ' + fmtNum(state.total) + ' posts</span>' +
+    '<button class="btn ghost sm"' + (state.page >= totalPages ? ' disabled' : '') + ' onclick="gotoPage(' + (state.page + 1) + ')">Next \u2192</button>' +
+    '</div>';
+}
+
+function setTlAccount(v) { state.tlAccount = v; state.page = 1; loadTimeline().catch((e) => toast(e.message, false)); }
+function setTlStatus(v) { state.tlStatus = v; loadTimeline().catch((e) => toast(e.message, false)); }
+function gotoPage(p) { state.page = p; loadTimeline().catch((e) => toast(e.message, false)); }
+function tlSearch(v) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.tlQuery = v.trim(); loadTimeline().catch(() => {}); }, 280);
+}
+
+async function exportCSV() {
   try {
-    const accounts = await api('/api/stats/overview');
-    const opts = state.filterAccount ? '&accountId=' + state.filterAccount : '';
-    const data = await api(`/api/posts?page=${state.page}&limit=20${opts}`);
-    state.total = data.total;
-    const sel = `
-      <div class="filters">
-        <select onchange="setFilterAccount(this.value)">
-          <option value="">All accounts</option>
-          ${accounts.accounts.map((a) => `<option value="${a.id}" ${state.filterAccount == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
-        </select>
-        <button class="ghost" onclick="reloadTimeline()">Refresh</button>
-      </div>`;
-    const totalPages = Math.max(1, Math.ceil(state.total / 20));
-    view.innerHTML = sel + postTable(data.posts) + `
-      <div class="pagination">
-        <button class="ghost" ${state.page <= 1 ? 'disabled' : ''} onclick="gotoPage(${state.page - 1})">← Prev</button>
-        <span class="info">Page ${state.page} of ${totalPages} · ${state.total} posts</span>
-        <button class="ghost" ${state.page >= totalPages ? 'disabled' : ''} onclick="gotoPage(${state.page + 1})">Next →</button>
-      </div>`;
+    toast('Preparing CSV\u2026');
+    const data = await api('/api/posts?page=1&limit=100' + (state.tlAccount ? '&accountId=' + state.tlAccount : ''));
+    const rows = [['posted_at', 'account', 'coin', 'status', 'views', 'reactions', 'post_url']];
+    for (const p of data.posts) {
+      rows.push([p.posted_at || '', p.account_name || '', p.coin || '', p.status || '', p.views ?? '', p.reactions ?? '', p.post_url || '']);
+    }
+    const csv = rows.map((r) => r.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'posts_' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(data.posts.length + ' rows exported');
   } catch (err) {
-    view.innerHTML = `<div class="empty">Failed to load: ${esc(err.message)}</div>`;
+    toast(err.message, false);
   }
 }
 
-function setFilterAccount(id) { state.filterAccount = id; state.page = 1; reloadTimeline(); }
-function gotoPage(p) { state.page = p; reloadTimeline(); }
-function reloadTimeline() { loadTimeline(); }
+/* ================= ANALYTICS ================= */
 
-/* ---------------- Analytics ---------------- */
+function chartDefaults() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1d1d21',
+        titleColor: '#f4f4f5',
+        bodyColor: '#9d9da8',
+        borderColor: 'rgba(255,255,255,0.12)',
+        borderWidth: 1,
+        padding: 11,
+        titleFont: { family: MONO, size: 11 },
+        bodyFont: { family: MONO, size: 11 },
+        displayColors: true,
+        boxPadding: 4
+      }
+    },
+    scales: {
+      x: { grid: { color: GRID }, ticks: { color: TICK, font: { family: MONO, size: 10 }, maxRotation: 0, autoSkip: true } },
+      y: { beginAtZero: true, grid: { color: GRID }, ticks: { color: TICK, font: { family: MONO, size: 10 } } }
+    }
+  };
+}
 
-let engagementChart = null;
-let engagementRateChart = null;
-let accountComparisonChart = null;
+function killChart(key) {
+  if (state.charts[key]) { state.charts[key].destroy(); delete state.charts[key]; }
+}
 
 async function loadAnalytics() {
   const view = $('#view-analytics');
-  view.innerHTML = '<div class="empty">Loading…</div>';
-  try {
-    const [series, overview, performance, topPosts] = await Promise.all([
-      api('/api/stats/engagement-series?days=30'),
-      api('/api/stats/overview'),
-      api('/api/stats/account-performance?days=30'),
-      api('/api/stats/top-posts?days=30&limit=10')
-    ]);
-    
-    state.series = series.series;
-    state.performance = performance.accounts;
+  const [series, perf, tops] = await Promise.all([
+    api('/api/stats/engagement-series?days=' + state.periodDays + (state.anAccount ? '&accountId=' + state.anAccount : '')),
+    api('/api/stats/account-performance?days=' + state.periodDays),
+    api('/api/stats/top-posts?days=' + state.periodDays + '&limit=10')
+  ]);
+  state.topPosts = tops.posts;
 
-    // Destroy existing charts
-    if (engagementChart) engagementChart.destroy();
-    if (engagementRateChart) engagementRateChart.destroy();
-    if (accountComparisonChart) accountComparisonChart.destroy();
+  const totals = series.series.reduce(
+    (acc, s) => ({ v: acc.v + s.views, r: acc.r + s.reactions, p: acc.p + s.posts }),
+    { v: 0, r: 0, p: 0 });
+  const rate = totals.v > 0 ? ((totals.r / totals.v) * 100).toFixed(2) : '0.00';
 
-    const labels = series.series.map(s => s.day.slice(5));
-    const viewsData = series.series.map(s => s.views);
-    const reactionsData = series.series.map(s => s.reactions);
-    const postsData = series.series.map(s => s.posts);
-    const engagementRateData = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
+  view.innerHTML =
+    '<div class="controls" style="justify-content:space-between">' +
+    '<div class="seg" role="group" aria-label="Period">' +
+    [7, 14, 30, 60, 90].map((d) =>
+      '<button class="' + (d === state.periodDays ? 'active' : '') + '" onclick="setPeriod(' + d + ')">' + d + 'd</button>').join('') +
+    '</div>' +
+    '<select onchange="setAnAccount(this.value)" style="background:var(--surface);border:1px solid var(--border-strong);color:var(--text);padding:8px 12px;border-radius:10px;font-size:13px">' +
+    '<option value="">All accounts</option>' +
+    perf.accounts.map((a) => '<option value="' + a.id + '"' + (String(state.anAccount) === String(a.id) ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('') +
+    '</select></div>' +
 
-    // Build HTML with canvas elements for charts
-    view.innerHTML = `
-      <div class="analytics-controls">
-        <label>Period:</label>
-        <select id="analytics-period" onchange="changeAnalyticsPeriod(this.value)">
-          <option value="7">7 days</option>
-          <option value="14" selected>14 days</option>
-          <option value="30" selected>30 days</option>
-          <option value="60">60 days</option>
-          <option value="90">90 days</option>
-        </select>
-        <label>Account:</label>
-        <select id="analytics-account" onchange="changeAnalyticsAccount(this.value)">
-          <option value="">All accounts</option>
-          ${overview.accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
-        </select>
-      </div>
+    '<div class="metric-row">' +
+    '<div class="metric hero-metric"><div class="m-label">Total views</div><div class="m-value">' + fmtNum(totals.v) + '</div><div class="m-foot">' + state.periodDays + 'd window</div></div>' +
+    '<div class="metric"><div class="m-label">Reactions</div><div class="m-value green">' + fmtNum(totals.r) + '</div><div class="m-foot">likes collected</div></div>' +
+    '<div class="metric"><div class="m-label">Engagement</div><div class="m-value">' + rate + '%</div><div class="m-foot">reactions / views</div></div>' +
+    '<div class="metric"><div class="m-label">Posts</div><div class="m-value">' + fmtNum(totals.p) + '</div><div class="m-foot">in window</div></div>' +
+    '</div>' +
 
-      <div class="chart-grid">
-        <div class="chart-box">
-          <h3>Views & Reactions Over Time</h3>
-          <div class="chart-legend">
-            <span class="legend-item"><span class="legend-color" style="background:#f0b90b"></span>Views</span>
-            <span class="legend-item"><span class="legend-color" style="background:#2ea44f"></span>Reactions</span>
-            <span class="legend-item"><span class="legend-color" style="background:#58a6ff"></span>Posts</span>
-          </div>
-          <canvas id="engagement-chart" height="200"></canvas>
-        </div>
+    '<div class="grid-2" style="margin-bottom:16px">' +
+    '<div class="chart-box" style="grid-column:1/-1"><h3>Views &amp; reactions over time</h3>' +
+    '<div class="c-sub">daily totals \u00b7 dashed line = post count</div>' +
+    '<div class="legend-row">' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + ACCENT + '"></span>views</span>' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + GREEN + '"></span>reactions</span>' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + BLUE + '"></span>posts</span>' +
+    '</div><div class="chart-canvas"><canvas id="ch-engagement"></canvas></div></div>' +
 
-        <div class="chart-box">
-          <h3>Engagement Rate (Reactions / Views %)</h3>
-          <canvas id="engagement-rate-chart" height="200"></canvas>
-        </div>
-      </div>
+    '<div class="chart-box"><h3>Engagement rate</h3><div class="c-sub">% reactions per views, per day</div>' +
+    '<div class="chart-canvas"><canvas id="ch-rate"></canvas></div></div>' +
 
-      <div class="chart-grid">
-        <div class="chart-box">
-          <h3>Per-Account Performance (Last 30 Days)</h3>
-          <canvas id="account-comparison-chart" height="200"></canvas>
-        </div>
+    '<div class="chart-box"><h3>Per-account performance</h3><div class="c-sub">totals across ' + state.periodDays + ' days</div>' +
+    '<div class="legend-row">' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + ACCENT + '"></span>views</span>' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + GREEN + '"></span>reactions</span>' +
+    '<span class="lg-item"><span class="lg-swatch" style="background:' + BLUE + '"></span>posts</span>' +
+    '</div><div class="chart-canvas"><canvas id="ch-accounts"></canvas></div></div>' +
+    '</div>' +
 
-        <div class="chart-box">
-          <h3>Top Posts by Engagement</h3>
-          <table class="table">
-            <thead><tr><th>Coin</th><th>Account</th><th>Views</th><th>Reactions</th><th>Engagement %</th><th>Time</th></tr></thead>
-            <tbody>
-              ${topPosts.posts.length === 0 ? '<tr><td colspan="6" class="empty">No engagement data yet.</td></tr>' : topPosts.posts.map(p => `
-                <tr>
-                  <td class="mono">${esc(p.coin || '—')}</td>
-                  <td>${esc(p.account_name)}</td>
-                  <td class="mono">${p.views || 0}</td>
-                  <td class="mono">${p.reactions || 0}</td>
-                  <td class="mono ${p.engagementRate > 5 ? 'green' : ''}">${p.engagementRate}%</td>
-                  <td class="mono">${fmtDate(p.posted_at)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    '<div class="section-head"><h2>Top posts</h2>' +
+    '<select onchange="sortTop(this.value)" style="background:var(--surface);border:1px solid var(--border-strong);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;font-family:var(--mono)">' +
+    '<option value="views">by views</option><option value="reactions">by reactions</option><option value="rate">by rate</option>' +
+    '</select></div>' +
+    '<div class="panel table-wrap" id="top-posts-wrap">' + topPostsTable() + '</div>' +
 
-      <div class="chart-box">
-        <h3>Account Summary Table</h3>
-        <table class="table">
-          <thead><tr><th>Account</th><th>Mode</th><th>Posts</th><th>Views</th><th>Reactions</th><th>Avg Views</th><th>Avg Reactions</th><th>Engagement %</th></tr></thead>
-          <tbody>
-            ${performance.accounts.length === 0 ? '<tr><td colspan="8" class="empty">No accounts.</td></tr>' : performance.accounts.map(a => `
-              <tr>
-                <td>${esc(a.name)}</td>
-                <td><span class="pill">${esc(a.mode)}</span></td>
-                <td class="mono">${a.totalPosts}</td>
-                <td class="mono">${a.totalViews}</td>
-                <td class="mono">${a.totalReactions}</td>
-                <td class="mono">${a.avgViews}</td>
-                <td class="mono">${a.avgReactions}</td>
-                <td class="mono ${a.engagementRate > 5 ? 'green' : ''}">${a.engagementRate}%</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
+    '<div class="section-head"><h2>Account summary</h2><span class="sh-side">' + state.periodDays + ' days</span></div>' +
+    '<div class="panel table-wrap">' +
+    '<table class="tbl"><thead><tr><th>Account</th><th>Posts</th><th>Views</th><th>Avg views</th><th>Reactions</th><th>Avg rct</th><th>Rate</th></tr></thead><tbody>' +
+    (perf.accounts.map((a) =>
+      '<tr><td>' + esc(a.name) + '</td>' +
+      '<td class="mono">' + a.totalPosts + '</td>' +
+      '<td class="mono">' + fmtNum(a.totalViews) + '</td>' +
+      '<td class="mono muted">' + fmtNum(a.avgViews) + '</td>' +
+      '<td class="mono">' + fmtNum(a.totalReactions) + '</td>' +
+      '<td class="mono muted">' + fmtNum(a.avgReactions) + '</td>' +
+      '<td class="mono ' + (a.engagementRate >= 5 ? 'green' : '') + '">' + a.engagementRate + '%</td></tr>').join('') ||
+      '<tr><td colspan="7">' + emptyBox('No data', 'Scraped engagement will appear here after the daily scrape runs.') + '</td></tr>') +
+    '</tbody></table></div>';
 
-    // Initialize charts after DOM is ready
-    setTimeout(() => {
-      initEngagementChart(labels, viewsData, reactionsData, postsData);
-      initEngagementRateChart(labels, engagementRateData);
-      initAccountComparisonChart(performance.accounts);
-    }, 0);
+  const labels = series.series.map((s) => s.day.slice(5));
 
-  } catch (err) {
-    view.innerHTML = `<div class="empty">Failed to load: ${esc(err.message)}</div>`;
-  }
-}
+  killChart('engagement');
+  killChart('rate');
+  killChart('accounts');
 
-function initEngagementChart(labels, views, reactions, posts) {
-  const ctx = document.getElementById('engagement-chart');
-  if (!ctx) return;
-  
-  engagementChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Views',
-          data: views,
-          borderColor: '#f0b90b',
-          backgroundColor: 'rgba(240,185,11,0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Reactions',
-          data: reactions,
-          borderColor: '#2ea44f',
-          backgroundColor: 'rgba(46,164,79,0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Posts',
-          data: posts,
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,0.1)',
-          fill: false,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          borderDash: [5, 5],
-          yAxisID: 'y1'
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1c2128',
-          titleColor: '#e6edf3',
-          bodyColor: '#8b949e',
-          borderColor: '#2d333b',
-          borderWidth: 1,
-          padding: 12,
-          displayColors: true
-        }
+  const engEl = $('#ch-engagement');
+  if (engEl) {
+    state.charts.engagement = new Chart(engEl.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Views', data: series.series.map((s) => s.views), borderColor: ACCENT, backgroundColor: 'rgba(240,185,11,0.08)', fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: ACCENT, borderWidth: 2 },
+          { label: 'Reactions', data: series.series.map((s) => s.reactions), borderColor: GREEN, backgroundColor: 'rgba(46,189,133,0.08)', fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: GREEN, borderWidth: 2 },
+          { label: 'Posts', data: series.series.map((s) => s.posts), borderColor: BLUE, borderDash: [4, 4], tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, yAxisID: 'y1' }
+        ]
       },
-      scales: {
-        x: {
-          grid: { color: 'rgba(45,51,59,0.3)' },
-          ticks: { color: '#8b949e', font: { size: 11 } }
-        },
-        y: {
-          type: 'linear',
-          position: 'left',
-          grid: { color: 'rgba(45,51,59,0.3)' },
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          beginAtZero: true
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          beginAtZero: true
-        }
-      }
-    }
-  });
-}
+      options: Object.assign(chartDefaults(), {
+        scales: Object.assign(chartDefaults().scales, {
+          y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK, font: { family: MONO, size: 10 }, precision: 0 } }
+        })
+      })
+    });
+  }
 
-function initEngagementRateChart(labels, rates) {
-  const ctx = document.getElementById('engagement-rate-chart');
-  if (!ctx) return;
-
-  engagementRateChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Engagement Rate %',
-        data: rates,
-        backgroundColor: rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)'),
-        borderColor: rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b'),
-        borderWidth: 1,
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1c2128',
-          titleColor: '#e6edf3',
-          bodyColor: '#8b949e',
-          borderColor: '#2d333b',
-          borderWidth: 1,
-          padding: 12,
-          callbacks: {
-            label: (ctx) => `Engagement Rate: ${ctx.parsed.y}%`
-          }
-        }
+  const rateEl = $('#ch-rate');
+  if (rateEl) {
+    const rates = series.series.map((s) => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
+    state.charts.rate = new Chart(rateEl.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: rates,
+          backgroundColor: rates.map((r) => r >= 5 ? 'rgba(46,189,133,0.55)' : 'rgba(240,185,11,0.55)'),
+          hoverBackgroundColor: rates.map((r) => r >= 5 ? GREEN : ACCENT),
+          borderRadius: 4, maxBarThickness: 22
+        }]
       },
-      scales: {
-        x: { grid: { color: 'rgba(45,51,59,0.3)' }, ticks: { color: '#8b949e', font: { size: 11 } } },
-        y: { 
-          grid: { color: 'rgba(45,51,59,0.3)' }, 
-          ticks: { color: '#8b949e', font: { size: 11 }, callback: (v) => v + '%' },
-          beginAtZero: true,
-          suggestedMax: Math.max(10, Math.max(...rates) * 1.2)
-        }
-      }
-    }
-  });
-}
+      options: Object.assign(chartDefaults(), {
+        plugins: Object.assign(chartDefaults().plugins, {
+          tooltip: Object.assign(chartDefaults().plugins.tooltip, {
+            callbacks: { label: (ctx) => ctx.parsed.y + '%' }
+          })
+        }),
+        scales: Object.assign(chartDefaults().scales, {
+          y: { beginAtZero: true, grid: { color: GRID }, ticks: { color: TICK, font: { family: MONO, size: 10 }, callback: (v) => v + '%' }, suggestedMax: 10 }
+        })
+      })
+    });
+  }
 
-function initAccountComparisonChart(accounts) {
-  const ctx = document.getElementById('account-comparison-chart');
-  if (!ctx) return;
-
-  const labels = accounts.map(a => a.name);
-  const viewsData = accounts.map(a => a.totalViews);
-  const reactionsData = accounts.map(a => a.totalReactions);
-  const postsData = accounts.map(a => a.totalPosts);
-
-  accountComparisonChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Total Views',
-          data: viewsData,
-          backgroundColor: 'rgba(240,185,11,0.6)',
-          borderColor: '#f0b90b',
-          borderWidth: 1,
-          borderRadius: 4,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Total Reactions',
-          data: reactionsData,
-          backgroundColor: 'rgba(46,164,79,0.6)',
-          borderColor: '#2ea44f',
-          borderWidth: 1,
-          borderRadius: 4,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Posts Count',
-          data: postsData,
-          backgroundColor: 'rgba(88,166,255,0.6)',
-          borderColor: '#58a6ff',
-          borderWidth: 1,
-          borderRadius: 4,
-          yAxisID: 'y1'
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { 
-          display: true,
-          position: 'bottom',
-          labels: { color: '#8b949e', font: { size: 11 }, usePointStyle: true }
-        },
-        tooltip: {
-          backgroundColor: '#1c2128',
-          titleColor: '#e6edf3',
-          bodyColor: '#8b949e',
-          borderColor: '#2d333b',
-          borderWidth: 1,
-          padding: 12
-        }
+  const accEl = $('#ch-accounts');
+  if (accEl) {
+    state.charts.accounts = new Chart(accEl.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: perf.accounts.map((a) => a.name),
+        datasets: [
+          { label: 'Views', data: perf.accounts.map((a) => a.totalViews), backgroundColor: 'rgba(240,185,11,0.55)', hoverBackgroundColor: ACCENT, borderRadius: 4, maxBarThickness: 26 },
+          { label: 'Reactions', data: perf.accounts.map((a) => a.totalReactions), backgroundColor: 'rgba(46,189,133,0.55)', hoverBackgroundColor: GREEN, borderRadius: 4, maxBarThickness: 26 },
+          { label: 'Posts', data: perf.accounts.map((a) => a.totalPosts), backgroundColor: 'rgba(122,162,247,0.5)', hoverBackgroundColor: BLUE, borderRadius: 4, maxBarThickness: 26 }
+        ]
       },
-      scales: {
-        x: { grid: { color: 'rgba(45,51,59,0.3)' }, ticks: { color: '#8b949e', font: { size: 11 } } },
-        y: { 
-          type: 'linear',
-          position: 'left',
-          grid: { color: 'rgba(45,51,59,0.3)' },
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          beginAtZero: true
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          beginAtZero: true
-        }
-      }
-    }
+      options: Object.assign(chartDefaults(), {
+        plugins: Object.assign(chartDefaults().plugins, {
+          legend: { display: false }
+        })
+      })
+    });
+  }
+}
+
+function topPostsTable() {
+  const list = [...state.topPosts].sort((a, b) => {
+    if (state.topSort === 'reactions') return (b.reactions || 0) - (a.reactions || 0);
+    if (state.topSort === 'rate') return (b.engagementRate || 0) - (a.engagementRate || 0);
+    return (b.views || 0) - (a.views || 0);
   });
-}
-
-async function changeAnalyticsPeriod(days) {
-  try {
-    const [series, performance] = await Promise.all([
-      api(`/api/stats/engagement-series?days=${days}`),
-      api(`/api/stats/account-performance?days=${days}`)
-    ]);
-    
-    if (engagementChart) {
-      const labels = series.series.map(s => s.day.slice(5));
-      engagementChart.data.labels = labels;
-      engagementChart.data.datasets[0].data = series.series.map(s => s.views);
-      engagementChart.data.datasets[1].data = series.series.map(s => s.reactions);
-      engagementChart.data.datasets[2].data = series.series.map(s => s.posts);
-      engagementChart.update();
-    }
-
-    if (engagementRateChart) {
-      const labels = series.series.map(s => s.day.slice(5));
-      const rates = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
-      engagementRateChart.data.labels = labels;
-      engagementRateChart.data.datasets[0].data = rates;
-      engagementRateChart.data.datasets[0].backgroundColor = rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)');
-      engagementRateChart.data.datasets[0].borderColor = rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b');
-      engagementRateChart.update();
-    }
-
-    if (accountComparisonChart) {
-      accountComparisonChart.data.labels = performance.accounts.map(a => a.name);
-      accountComparisonChart.data.datasets[0].data = performance.accounts.map(a => a.totalViews);
-      accountComparisonChart.data.datasets[1].data = performance.accounts.map(a => a.totalReactions);
-      accountComparisonChart.data.datasets[2].data = performance.accounts.map(a => a.totalPosts);
-      accountComparisonChart.update();
-    }
-  } catch (err) {
-    toast(err.message, false);
+  if (list.length === 0) {
+    return emptyBox('No engagement data yet', 'The daily scraper fills views and reactions automatically.');
   }
+  return '<table class="tbl"><thead><tr><th>#</th><th>Coin</th><th>Account</th><th>Views</th><th>Reactions</th><th>Rate</th><th>Posted</th><th></th></tr></thead><tbody>' +
+    list.map((p, i) =>
+      '<tr><td class="mono muted">' + String(i + 1).padStart(2, '0') + '</td>' +
+      '<td class="mono gold">$' + esc(p.coin || '\u2014') + '</td>' +
+      '<td>' + esc(p.account_name || '') + '</td>' +
+      '<td class="mono">' + fmtNum(p.views || 0) + '</td>' +
+      '<td class="mono">' + fmtNum(p.reactions || 0) + '</td>' +
+      '<td class="mono ' + ((p.engagementRate || 0) >= 5 ? 'green' : '') + '">' + (p.engagementRate || 0) + '%</td>' +
+      '<td class="mono muted" style="white-space:nowrap">' + esc(fmtRel(p.posted_at)) + '</td>' +
+      '<td>' + (p.post_url && p.post_url !== 'N/A' ? '<a href="' + esc(p.post_url) + '" target="_blank" rel="noopener">' + ICONS.external + '</a>' : '') + '</td></tr>').join('') +
+    '</tbody></table>';
 }
 
-async function changeAnalyticsAccount(accountId) {
-  try {
-    const days = document.getElementById('analytics-period').value;
-    const url = accountId 
-      ? `/api/stats/engagement-series?days=${days}&accountId=${accountId}`
-      : `/api/stats/engagement-series?days=${days}`;
-    
-    const series = await api(url);
-    
-    if (engagementChart) {
-      const labels = series.series.map(s => s.day.slice(5));
-      engagementChart.data.labels = labels;
-      engagementChart.data.datasets[0].data = series.series.map(s => s.views);
-      engagementChart.data.datasets[1].data = series.series.map(s => s.reactions);
-      engagementChart.data.datasets[2].data = series.series.map(s => s.posts);
-      engagementChart.update();
-    }
-
-    if (engagementRateChart) {
-      const labels = series.series.map(s => s.day.slice(5));
-      const rates = series.series.map(s => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
-      engagementRateChart.data.labels = labels;
-      engagementRateChart.data.datasets[0].data = rates;
-      engagementRateChart.data.datasets[0].backgroundColor = rates.map(r => r > 5 ? 'rgba(46,164,79,0.6)' : 'rgba(240,185,11,0.6)');
-      engagementRateChart.data.datasets[0].borderColor = rates.map(r => r > 5 ? '#2ea44f' : '#f0b90b');
-      engagementRateChart.update();
-    }
-  } catch (err) {
-    toast(err.message, false);
-  }
+function setPeriod(d) { state.periodDays = d; loadAnalytics().catch((e) => toast(e.message, false)); }
+function setAnAccount(v) { state.anAccount = v; loadAnalytics().catch((e) => toast(e.message, false)); }
+function sortTop(v) {
+  state.topSort = v;
+  const wrap = $('#top-posts-wrap');
+  if (wrap) wrap.innerHTML = topPostsTable();
 }
 
-/* ---------------- Boot ---------------- */
-
-async function boot() {
-  initLogin();
-  initTabs();
-  if (TOKEN && API_URL) {
-    try {
-      await api('/api/health/env');
-      showApp();
-    } catch {
-      localStorage.removeItem('bm_token');
-    }
-  } else {
-    $('#login-screen').classList.remove('hidden');
-  }
-}
+/* ---------- global handlers ---------- */
 
 window.openAddAccount = openAddAccount;
 window.openEditAccount = openEditAccount;
-window.toggleAccount = toggleAccount;
-window.deleteAccount = deleteAccount;
 window.saveAccount = saveAccount;
 window.closeModal = closeModal;
-window.setFilterAccount = setFilterAccount;
+window.toggleAccount = toggleAccount;
+window.deleteAccount = deleteAccount;
+window.setTlAccount = setTlAccount;
+window.setTlStatus = setTlStatus;
 window.gotoPage = gotoPage;
-window.reloadTimeline = reloadTimeline;
-window.changeAnalyticsPeriod = changeAnalyticsPeriod;
-window.changeAnalyticsAccount = changeAnalyticsAccount;
+window.tlSearch = tlSearch;
+window.exportCSV = exportCSV;
+window.setPeriod = setPeriod;
+window.setAnAccount = setAnAccount;
+window.sortTop = sortTop;
 
 boot();

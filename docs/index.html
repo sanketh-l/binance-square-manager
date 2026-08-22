@@ -6,72 +6,111 @@
   <title>Binance Square Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="login-screen" class="login-screen">
-    <div class="login-card">
-      <div class="login-brand">
-        <svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <rect width="32" height="32" rx="8" fill="currentColor"/>
-          <path d="M8 12h16M8 16h12M8 20h8" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <div>
-          <h1>Binance Square Manager</h1>
-          <p>Multi-account automation dashboard</p>
-        </div>
+
+  <div id="login" class="login hidden">
+    <div class="login-brand">
+      <div class="brand-mark">BS</div>
+      <h1>Square<br>Manager</h1>
+      <p>Multi-account autoposter control room.<br>Posts, reach and engagement — one pane of glass.</p>
+      <div class="login-meta">
+        <span class="chip"><span class="dot ok"></span>Worker</span>
+        <span class="chip"><span class="dot ok"></span>D1</span>
+        <span class="chip"><span class="dot ok"></span>Actions</span>
       </div>
+    </div>
+    <div class="login-panel">
       <form id="login-form" novalidate>
+        <h2>Sign in</h2>
+        <p class="sub">Admin token never leaves your browser storage.</p>
         <div class="field">
           <label for="login-api">API URL</label>
-          <input id="login-api" type="url" placeholder="https://your-worker.workers.dev" required autocomplete="url">
-          <span class="field-hint">Your Cloudflare Worker URL</span>
+          <input id="login-api" type="url" placeholder="https://your-worker.workers.dev" autocomplete="url" required>
         </div>
         <div class="field">
-          <label for="login-token">Admin Token</label>
-          <input id="login-token" type="password" placeholder="X-API-Token" required autocomplete="current-password">
+          <label for="login-token">Admin token</label>
+          <input id="login-token" type="password" placeholder="X-API-Token" autocomplete="current-password" required>
         </div>
-        <button type="submit" class="btn btn-primary" id="login-btn">
-          <span class="btn-text">Connect</span>
-          <span class="btn-loader" aria-hidden="true"></span>
-        </button>
-        <p id="login-error" class="error" aria-live="polite"></p>
+        <button type="submit" class="btn primary block" id="login-btn">Connect</button>
+        <p id="login-error" class="form-error" aria-live="polite"></p>
       </form>
     </div>
   </div>
 
-  <div id="app" class="app hidden">
-    <header class="header">
-      <div class="header-brand">
-        <svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <rect width="32" height="32" rx="8" fill="currentColor"/>
-          <path d="M8 12h16M8 16h12M8 20h8" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span class="title">Binance Square Manager</span>
-      </div>
-      <nav class="header-nav" role="navigation" aria-label="Main navigation">
-        <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
-        <button class="tab" data-tab="accounts" role="tab" aria-selected="false">Accounts</button>
-        <button class="tab" data-tab="timeline" role="tab" aria-selected="false">Timeline</button>
-        <button class="tab" data-tab="analytics" role="tab" aria-selected="false">Analytics</button>
-      </nav>
-      <div class="header-actions">
-        <span class="next-run" id="next-run" aria-live="polite"></span>
-        <button id="logout-btn" class="btn btn-ghost" aria-label="Log out">Log out</button>
-      </div>
-    </header>
+  <div id="app" class="shell hidden">
 
-    <main class="main" role="main">
-      <section id="view-overview" class="view active" role="tabpanel" aria-labelledby="overview-tab"></section>
-      <section id="view-accounts" class="view" role="tabpanel" aria-labelledby="accounts-tab"></section>
-      <section id="view-timeline" class="view" role="tabpanel" aria-labelledby="timeline-tab"></section>
-      <section id="view-analytics" class="view" role="tabpanel" aria-labelledby="analytics-tab"></section>
-    </main>
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="brand-mark sm">BS</div>
+        <div class="side-brand-text">
+          <strong>Square Manager</strong>
+          <span>v2 control room</span>
+        </div>
+      </div>
+
+      <nav class="side-nav" aria-label="Primary">
+        <button class="nav-item active" data-tab="overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          Overview
+        </button>
+        <button class="nav-item" data-tab="accounts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Accounts
+        </button>
+        <button class="nav-item" data-tab="timeline">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Timeline
+        </button>
+        <button class="nav-item" data-tab="analytics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          Analytics
+        </button>
+      </nav>
+
+      <div class="side-foot">
+        <div class="conn">
+          <span class="dot ok" id="conn-dot"></span>
+          <span class="conn-url" id="conn-url">—</span>
+        </div>
+        <button id="logout-btn" class="btn ghost sm block">Log out</button>
+      </div>
+    </aside>
+
+    <div class="mainwrap">
+      <header class="topbar">
+        <div class="topbar-titles">
+          <h1 id="page-title">Overview</h1>
+          <p id="page-sub">System health at a glance</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="chip mono" id="next-run-chip" title="Next scheduled run (hourly)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+            <span id="next-run-txt">—</span>
+          </span>
+          <span id="ctx-slot"></span>
+          <button id="refresh-btn" class="btn ghost sm icon-only" title="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+          <button id="auto-btn" class="btn ghost sm auto-toggle" title="Auto-refresh every 30s">
+            <span class="auto-led"></span> Auto
+          </button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section id="view-overview" class="view active"></section>
+        <section id="view-accounts" class="view"></section>
+        <section id="view-timeline" class="view"></section>
+        <section id="view-analytics" class="view"></section>
+      </main>
+    </div>
   </div>
 
-  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>
