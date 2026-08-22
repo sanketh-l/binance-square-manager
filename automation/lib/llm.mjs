@@ -37,13 +37,16 @@ async function resolveModel() {
   return resolvedModel;
 }
 
-async function groqChat(messages, temperature = 0.7, maxTokens = 500) {
+async function groqChat(messages, temperature = 0.7, maxTokens = 2000) {
   const model = await resolveModel();
+  const isReasoning = model.includes('gpt-oss') || model.includes('qwen');
+  const body = { model, messages, temperature, max_tokens: maxTokens };
+  if (isReasoning) body.reasoning_effort = 'low';
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
-    signal: AbortSignal.timeout(30000)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000)
   });
   if (!res.ok) {
     console.error(`  Groq API error ${res.status}${res.status === 404 ? ' - model gone, re-resolving' : ''}`);
@@ -60,9 +63,10 @@ async function groqChat(messages, temperature = 0.7, maxTokens = 500) {
   }
   const data = await res.json();
   if (data.choices && data.choices[0]) {
-    let content = data.choices[0].message.content.trim();
+    let content = (data.choices[0].message.content || '').trim();
+    if (!content) console.error('  Groq returned empty content (reasoning consumed token budget)');
     if (content.startsWith('```')) content = content.replace(/```json?\n?/g, '').replace(/```\n?/g, '').trim();
-    return content;
+    return content || null;
   }
   return null;
 }
@@ -89,7 +93,7 @@ export async function selectTopic(trendingCoins, usedSymbols, timeOfDay) {
     'Format options: technical_analysis, news_commentary, explainer, market_reaction\n' +
     'Hook options: narrative, urgency, controversy';
 
-  const raw = await groqChat([{ role: 'user', content: prompt }], 0.7, 500);
+  const raw = await groqChat([{ role: 'user', content: prompt }], 0.7, 2000);
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
 }
@@ -151,7 +155,7 @@ export async function generatePost(topic, price) {
     `Angle: ${topic.angle}\n\n` +
     `Follow the format EXACTLY. Cashtag ($${topic.symbol.toUpperCase()}) on its own line at the very end.`;
 
-  const raw = await groqChat([{ role: 'user', content: prompt }], 0.8, 300);
+  const raw = await groqChat([{ role: 'user', content: prompt }], 0.8, 2000);
   if (!raw) return null;
   return raw;
 }
@@ -171,7 +175,7 @@ export async function scorePost(post) {
     'Hard block: factual_grounding === 0 OR cashtag_relevance === 0 OR format_compliance === 0 => pass:false. Minimum pass total 7/10.';
 
   try {
-    const raw = await groqChat([{ role: 'user', content: scoringPrompt }], 0.2, 300);
+    const raw = await groqChat([{ role: 'user', content: scoringPrompt }], 0.2, 1000);
     if (!raw) return { pass: true, llm_failed: true, total: 8, feedback: 'LLM unavailable - auto-approved' };
     return JSON.parse(raw);
   } catch {
