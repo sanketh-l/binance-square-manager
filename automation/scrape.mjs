@@ -37,13 +37,16 @@ async function scrapePostStats(contentId) {
         const data = JSON.parse(text);
         const payload = data?.data?.content || data?.data || data;
         const views = extractNumber(payload, ['viewNum', 'views', 'viewCount', 'readCount', 'readNum', 'insNum']);
-        const reactions = extractNumber(payload, ['likeNum', 'likes', 'reactionCount', 'favoriteNum', 'collectNum']);
+        const reactions = extractNumber(payload, ['likeCount', 'likeNum', 'likes', 'reactionCount', 'favoriteNum', 'collectNum']);
         if (views !== null || reactions !== null) {
           return { views, reactions, scraped: true, url };
         }
       } catch {}
-      const m = text.match(/"view(?:Count|Num)"\s*:\s*(\d+)/);
-      if (m) return { views: Number(m[1]), reactions: null, scraped: true, url };
+      const v = text.match(/"view(?:Count|Num)"\s*:\s*(\d+)/);
+      const l = text.match(/"(?:likeCount|likeNum)"\s*:\s*(\d+)/);
+      if (v || l) {
+        return { views: v ? Number(v[1]) : null, reactions: l ? Number(l[1]) : null, scraped: true, url };
+      }
     } catch {}
   }
   return { views: null, reactions: null, scraped: false };
