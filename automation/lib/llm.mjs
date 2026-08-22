@@ -1,15 +1,61 @@
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
-const MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const CONFIGURED_MODEL = process.env.GROQ_MODEL || '';
+const PREFERRED_MODELS = ['openai/gpt-oss-120b', 'qwen/qwen3.6-27b', 'openai/gpt-oss-20b'];
+
+let resolvedModel = null;
+
+async function resolveModel() {
+  if (resolvedModel) return resolvedModel;
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const available = new Set((data.data || []).map((m) => m.id));
+      if (CONFIGURED_MODEL && available.has(CONFIGURED_MODEL)) {
+        resolvedModel = CONFIGURED_MODEL;
+        console.log(`  [llm] Model: ${resolvedModel} (configured)`);
+        return resolvedModel;
+      }
+      for (const m of PREFERRED_MODELS) {
+        if (available.has(m)) {
+          resolvedModel = m;
+          console.log(`  [llm] Model: ${resolvedModel} (auto-selected${CONFIGURED_MODEL ? ', configured model unavailable' : ''})`);
+          return resolvedModel;
+        }
+      }
+    } else {
+      console.error(`  [llm] Models list error ${res.status}`);
+    }
+  } catch (err) {
+    console.error(`  [llm] Models discovery failed: ${err.message}`);
+  }
+  resolvedModel = CONFIGURED_MODEL || PREFERRED_MODELS[0];
+  console.log(`  [llm] Model fallback: ${resolvedModel}`);
+  return resolvedModel;
+}
 
 async function groqChat(messages, temperature = 0.7, maxTokens = 500) {
+  const model = await resolveModel();
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-    body: JSON.stringify({ model: MODEL, messages, temperature, max_tokens: maxTokens }),
+    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
     signal: AbortSignal.timeout(30000)
   });
   if (!res.ok) {
-    console.error(`  Groq API error ${res.status}`);
+    console.error(`  Groq API error ${res.status}${res.status === 404 ? ' - model gone, re-resolving' : ''}`);
+    if (res.status === 404 && model !== CONFIGURED_MODEL) {
+      const idx = PREFERRED_MODELS.indexOf(model);
+      if (idx >= 0 && idx < PREFERRED_MODELS.length - 1) {
+        resolvedModel = null;
+        PREFERRED_MODELS.splice(idx, 1);
+        return groqChat(messages, temperature, maxTokens);
+      }
+      resolvedModel = null;
+    }
     return null;
   }
   const data = await res.json();

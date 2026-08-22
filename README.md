@@ -70,7 +70,7 @@ In your repo → **Settings → Secrets and variables → Actions**:
 | `API_URL` | Your deployed worker URL (`https://binance-manager.<sub>.workers.dev`) |
 | `BOT_TOKEN` | Same as the Worker `BOT_TOKEN` |
 | `GROQ_API_KEY` | Groq key (content generation) |
-| `GROQ_MODEL` | optional, default `llama-3.3-70b-versatile` |
+| `GROQ_MODEL` | optional, auto-discovers best available (prefers `openai/gpt-oss-120b`) |
 
 > Binance keys are **not** stored in GitHub secrets — they live encrypted in D1 and are entered through the dashboard.
 
