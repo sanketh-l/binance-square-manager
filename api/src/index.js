@@ -214,24 +214,27 @@ export default {
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
       const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 10)));
       const sortBy = url.searchParams.get('sortBy') || 'views';
+      const accountId = url.searchParams.get('accountId') || undefined;
       const validSorts = ['views', 'reactions', 'engagementRate'];
       const sort = validSorts.includes(sortBy) ? sortBy : 'views';
 
-      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setUTCHours(0, 0, 0, 0);
+      const startMs = end.getTime() - (days - 1) * 24 * 60 * 60 * 1000;
 
       const orderBy = sort === 'engagementRate' 
         ? 'CASE WHEN views > 0 THEN (reactions * 1.0 / views) ELSE 0 END DESC'
         : `${sort} DESC`;
 
-      const { results } = await db.prepare(
-        `SELECT p.*, a.name AS account_name
+      let topSql = `SELECT p.*, a.name AS account_name
          FROM posts p
          JOIN accounts a ON a.id = p.account_id
-         WHERE p.posted_at >= ? AND p.status = 'published'
-         ORDER BY ${orderBy}
-         LIMIT ?`
-      ).bind(start.toISOString(), limit).all();
+         WHERE p.posted_at >= ? AND p.status = 'published'`;
+      const topParams = [new Date(startMs).toISOString()];
+      if (accountId) { topSql += ' AND p.account_id = ?'; topParams.push(accountId); }
+      topSql += ` ORDER BY ${orderBy} LIMIT ?`;
+      topParams.push(limit);
+      const { results } = await db.prepare(topSql).bind(...topParams).all();
 
       const posts = (results || []).map(p => ({
         ...p,

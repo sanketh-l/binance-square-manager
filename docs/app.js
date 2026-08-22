@@ -594,7 +594,7 @@ async function loadAnalytics() {
   const [series, perf, tops] = await Promise.all([
     api('/api/stats/engagement-series?days=' + state.periodDays + (state.anAccount ? '&accountId=' + state.anAccount : '')),
     api('/api/stats/account-performance?days=' + state.periodDays),
-    api('/api/stats/top-posts?days=' + state.periodDays + '&limit=10')
+    api('/api/stats/top-posts?days=' + state.periodDays + '&limit=10' + (state.anAccount ? '&accountId=' + state.anAccount : ''))
   ]);
   state.topPosts = tops.posts;
 
