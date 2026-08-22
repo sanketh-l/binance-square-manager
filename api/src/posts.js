@@ -20,18 +20,21 @@ export async function listPosts(db, opts = {}) {
 export async function recordPost(db, body) {
   const { accountId, coin, text, imageUrl, postUrl, contentId, status, error, format, hook, qualityScore, postedAt } = body;
   if (!accountId) return { error: 'accountId required', status: 400 };
+  const finalStatus = status || 'published';
   const result = await db.prepare(
     `INSERT INTO posts (account_id, coin, text, image, post_url, content_id, status, error, format, hook, quality_score, posted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     accountId, coin || null, text || null, imageUrl || null, postUrl || null, contentId || null,
-    status || 'published', error || null, format || null, hook || null, qualityScore || null,
+    finalStatus, error || null, format || null, hook || null, qualityScore || null,
     postedAt || new Date().toISOString()
   ).run();
   const newId = result.meta.last_row_id;
-  await db.prepare(
-    `UPDATE accounts SET last_post_at = ?, posts24h = posts24h + 1, updated_at = datetime('now') WHERE id = ?`
-  ).bind(postedAt || new Date().toISOString(), accountId).run();
+  if (finalStatus === 'published') {
+    await db.prepare(
+      `UPDATE accounts SET last_post_at = ?, posts24h = posts24h + 1, updated_at = datetime('now') WHERE id = ?`
+    ).bind(postedAt || new Date().toISOString(), accountId).run();
+  }
   return { id: newId };
 }
 
