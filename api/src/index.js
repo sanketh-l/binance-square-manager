@@ -86,7 +86,7 @@ export default {
 
     // ---- Posts
     if (path === '/api/posts' && method === 'GET') {
-      if (!isAdmin) return fail('Unauthorized', 401);
+      if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const params = Object.fromEntries(url.searchParams);
       return ok(await listPosts(db, params));
     }
