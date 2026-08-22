@@ -37,25 +37,37 @@ async function resolveModel() {
   return resolvedModel;
 }
 
-async function groqChat(messages, temperature = 0.7, maxTokens = 2000) {
+async function groqChat(messages, temperature = 0.7, maxTokens = 2000, attempt = 1) {
   const model = await resolveModel();
   const isReasoning = model.includes('gpt-oss') || model.includes('qwen');
   const body = { model, messages, temperature, max_tokens: maxTokens };
   if (isReasoning) body.reasoning_effort = 'low';
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60000)
-  });
+  let res;
+  try {
+    res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000)
+    });
+  } catch (err) {
+    console.error(`  Groq network error: ${err.message}`);
+    return null;
+  }
   if (!res.ok) {
+    if (res.status === 429 && attempt <= 3) {
+      const retryAfter = Number(res.headers.get('retry-after')) || attempt * 15;
+      console.error(`  Groq rate limited, retry ${attempt}/3 in ${retryAfter}s`);
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      return groqChat(messages, temperature, maxTokens, attempt + 1);
+    }
     console.error(`  Groq API error ${res.status}${res.status === 404 ? ' - model gone, re-resolving' : ''}`);
     if (res.status === 404 && model !== CONFIGURED_MODEL) {
       const idx = PREFERRED_MODELS.indexOf(model);
       if (idx >= 0 && idx < PREFERRED_MODELS.length - 1) {
         resolvedModel = null;
         PREFERRED_MODELS.splice(idx, 1);
-        return groqChat(messages, temperature, maxTokens);
+        return groqChat(messages, temperature, maxTokens, 1);
       }
       resolvedModel = null;
     }

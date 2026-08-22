@@ -177,17 +177,22 @@ async function main() {
   const broadcastActs = due.filter((a) => a.mode === 'broadcast');
   const results = [];
 
-  for (const account of uniqueActs) {
+  for (const [i, account] of uniqueActs.entries()) {
+    if (i > 0) {
+      console.log(`  (waiting 15s before next account to respect rate limits)`);
+      await new Promise((r) => setTimeout(r, 15000));
+    }
     try {
       const topic = await researchTopic();
       const post = await makePost(topic);
       const result = await publishForAccount(account, post);
       results.push({ account, ok: true, coin: post.coin, text: post.content, result });
-      log(`[${account.name}] unique => ${result.postUrl} | img: ${result.imageUrl ? 'OK' : 'none'}`);
+      console.log(`[${account.name}] unique => ${result.postUrl}`);
     } catch (err) {
-      log(`[${account.name}] unique failed: ${err.message}`);
+      console.log(`[${account.name}] unique failed: ${err.message}`);
       results.push({ account, ok: false, error: err.message });
     }
+  }
   }
 
   if (broadcastActs.length > 0) {
