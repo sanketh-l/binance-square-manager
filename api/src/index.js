@@ -124,18 +124,18 @@ export default {
     if (path === '/api/stats/series' && method === 'GET') {
       if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 14)));
-      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setUTCHours(0, 0, 0, 0);
+      const startMs = end.getTime() - (days - 1) * 24 * 60 * 60 * 1000;
       const { results } = await db.prepare(
         `SELECT date(posted_at) AS day, COUNT(*) AS n, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS published
          FROM posts WHERE posted_at >= ? GROUP BY date(posted_at) ORDER BY day`
-      ).bind(start.toISOString()).all();
+      ).bind(new Date(startMs).toISOString()).all();
       const map = {};
       for (const r of (results || [])) map[r.day] = { total: r.n, published: r.published || 0 };
       const series = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
-        const key = d.toISOString().slice(0, 10);
+      for (let i = 0; i < days; i++) {
+        const key = new Date(startMs + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         series.push({ day: key, total: (map[key] || {}).total || 0, published: (map[key] || {}).published || 0 });
       }
       return ok({ series });
@@ -146,15 +146,16 @@ export default {
       if (!isAdmin && !isBot) return fail('Unauthorized', 401);
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30)));
       const accountId = url.searchParams.get('accountId') || undefined;
-      const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setUTCHours(0, 0, 0, 0);
+      const startMs = end.getTime() - (days - 1) * 24 * 60 * 60 * 1000;
 
       let sql = `SELECT date(posted_at) AS day, 
                         SUM(COALESCE(views, 0)) AS total_views,
                         SUM(COALESCE(reactions, 0)) AS total_reactions,
                         COUNT(*) AS posts_count
                  FROM posts WHERE posted_at >= ?`;
-      const params = [start.toISOString()];
+      const params = [new Date(startMs).toISOString()];
       if (accountId) { sql += ' AND account_id = ?'; params.push(accountId); }
       sql += ' GROUP BY date(posted_at) ORDER BY day';
 
@@ -164,9 +165,8 @@ export default {
         map[r.day] = { views: r.total_views || 0, reactions: r.total_reactions || 0, posts: r.posts_count || 0 };
       }
       const series = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
-        const key = d.toISOString().slice(0, 10);
+      for (let i = 0; i < days; i++) {
+        const key = new Date(startMs + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         series.push({ day: key, ...(map[key] || { views: 0, reactions: 0, posts: 0 }) });
       }
       return ok({ series });
