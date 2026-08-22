@@ -179,7 +179,7 @@ async function main() {
 
   for (const [i, account] of uniqueActs.entries()) {
     if (i > 0) {
-      console.log(`  (waiting 15s before next account to respect rate limits)`);
+      log(`(waiting 15s before next account to respect rate limits)`);
       await new Promise((r) => setTimeout(r, 15000));
     }
     try {
@@ -187,12 +187,11 @@ async function main() {
       const post = await makePost(topic);
       const result = await publishForAccount(account, post);
       results.push({ account, ok: true, coin: post.coin, text: post.content, result });
-      console.log(`[${account.name}] unique => ${result.postUrl}`);
+      log(`[${account.name}] unique => ${result.postUrl} | img: ${result.imageUrl ? 'OK' : 'none'}`);
     } catch (err) {
-      console.log(`[${account.name}] unique failed: ${err.message}`);
+      log(`[${account.name}] unique failed: ${err.message}`);
       results.push({ account, ok: false, error: err.message });
     }
-  }
   }
 
   if (broadcastActs.length > 0) {
