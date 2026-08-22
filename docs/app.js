@@ -573,6 +573,22 @@ function killChart(key) {
   if (state.charts[key]) { state.charts[key].destroy(); delete state.charts[key]; }
 }
 
+function drawChart(key, canvasId, config, boxTitle) {
+  killChart(key);
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  if (typeof Chart === 'undefined') {
+    const host = el.closest('.chart-box');
+    if (host) host.innerHTML = '<h3>' + esc(boxTitle || 'Chart') + '</h3><div class="empty"><div class="e-title">Charts unavailable</div><div class="e-hint">Chart library failed to load — refresh the page.</div></div>';
+    return;
+  }
+  try {
+    state.charts[key] = new Chart(el.getContext('2d'), config);
+  } catch (err) {
+    console.error('chart error', key, err);
+  }
+}
+
 async function loadAnalytics() {
   const view = $('#view-analytics');
   const [series, perf, tops] = await Promise.all([
@@ -653,7 +669,7 @@ async function loadAnalytics() {
 
   const engEl = $('#ch-engagement');
   if (engEl) {
-    state.charts.engagement = new Chart(engEl.getContext('2d'), {
+    drawChart('engagement', 'ch-engagement', {
       type: 'line',
       data: {
         labels,
@@ -668,13 +684,13 @@ async function loadAnalytics() {
           y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK, font: { family: MONO, size: 10 }, precision: 0 } }
         })
       })
-    });
+    }, 'Views & reactions over time');
   }
 
   const rateEl = $('#ch-rate');
   if (rateEl) {
     const rates = series.series.map((s) => s.views > 0 ? Number(((s.reactions / s.views) * 100).toFixed(2)) : 0);
-    state.charts.rate = new Chart(rateEl.getContext('2d'), {
+    drawChart('rate', 'ch-rate', {
       type: 'bar',
       data: {
         labels,
@@ -695,12 +711,12 @@ async function loadAnalytics() {
           y: { beginAtZero: true, grid: { color: GRID }, ticks: { color: TICK, font: { family: MONO, size: 10 }, callback: (v) => v + '%' }, suggestedMax: 10 }
         })
       })
-    });
+    }, 'Engagement rate');
   }
 
   const accEl = $('#ch-accounts');
   if (accEl) {
-    state.charts.accounts = new Chart(accEl.getContext('2d'), {
+    drawChart('accounts', 'ch-accounts', {
       type: 'bar',
       data: {
         labels: perf.accounts.map((a) => a.name),
@@ -715,7 +731,7 @@ async function loadAnalytics() {
           legend: { display: false }
         })
       })
-    });
+    }, 'Per-account performance');
   }
 }
 

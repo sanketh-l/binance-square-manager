@@ -2,18 +2,18 @@ const oneDayMs = 24 * 60 * 60 * 1000;
 
 export async function listPosts(db, opts = {}) {
   const { accountId, from, to, page = 1, limit = 20 } = opts;
-  let sql = 'SELECT p.*, a.name AS account_name, a.key_mask FROM posts p JOIN accounts a ON a.id = p.account_id';
   const where = [];
   const values = [];
   if (accountId) { where.push('p.account_id = ?'); values.push(accountId); }
   if (from) { where.push('p.posted_at >= ?'); values.push(from); }
   if (to) { where.push('p.posted_at <= ?'); values.push(to); }
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
+  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  let sql = 'SELECT p.*, a.name AS account_name, a.key_mask FROM posts p JOIN accounts a ON a.id = p.account_id' + whereSql;
   sql += ' ORDER BY p.posted_at DESC LIMIT ? OFFSET ?';
   const p = Math.max(1, page), l = Math.min(100, Math.max(1, limit));
   values.push(l, (p - 1) * l);
   const { results } = await db.prepare(sql).bind(...values).all();
-  const total = await db.prepare('SELECT COUNT(*) AS n FROM posts').first();
+  const total = await db.prepare('SELECT COUNT(*) AS n FROM posts p' + whereSql.replace(/p\.account_id/g, 'account_id').replace(/p\.posted_at/g, 'posted_at')).bind(...values.slice(0, values.length - 2)).first();
   return { posts: results, total: total ? total.n : 0, page: p, limit: l };
 }
 
